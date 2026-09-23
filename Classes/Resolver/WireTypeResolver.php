@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Resolver;
 
 use Jramke\FluidTypes\Transformers\JsonSerializableClassTransformer;
+use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
+use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
+use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
+use PHPStan\PhpDocParser\Ast\Type\ObjectShapeNode;
+use PHPStan\PhpDocParser\Ast\Type\TypeNode;
+use PHPStan\PhpDocParser\Ast\Type\UnionTypeNode;
 use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
@@ -19,9 +25,12 @@ use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
 use Spatie\TypeScriptTransformer\TypeResolvers\DocTypeResolver;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptArray;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptBoolean;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptLiteral;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNull;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNumber;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptObject;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptProperty;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptReference;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptString;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUndefined;
@@ -82,11 +91,7 @@ final class WireTypeResolver
         $parsedMethod = $this->docTypeResolver->method($phpMethodNode);
 
         if ($parsedMethod?->returnType !== null) {
-            return $this->transpilePhpStanTypeToTypeScriptTypeAction->execute(
-                $parsedMethod->returnType,
-                $phpMethodNode->getDeclaringClass(),
-                [],
-            );
+            return $this->resolveDocblockType($parsedMethod->returnType, $phpMethodNode->getDeclaringClass());
         }
 
         $nativeReturnType = $method->getReturnType();
@@ -160,6 +165,72 @@ final class WireTypeResolver
     public function getClassTransformeds(): array
     {
         return $this->classTransformeds;
+    }
+
+    /**
+     * spatie's own `TranspilePhpStanTypeToTypeScriptNodeAction` maps every bool-ish docblock
+     * identifier - `bool`, `true`, and `false` alike - to a plain `TypeScriptBoolean()`, losing a
+     * literal `false`/`true` (e.g. `@return array{wordCount: string|false}`, this project's own
+     * "no translation" signal). That's real information a caller downstream can't get back - a
+     * component that declares its translations `string | false` (never `true`) would otherwise
+     * widen to `string | boolean` and no longer satisfy its own prop's stricter type.
+     *
+     * Recursing through the two structural node kinds these context docblocks actually use here -
+     * a top-level union, and an `array{...}` shape's own value types (every `@return array{...}`
+     * this project writes) - and special-casing a bare `true`/`false` identifier wherever it turns
+     * up in either preserves that literal without reimplementing spatie's full dispatch. Anything
+     * structurally deeper (a shape nested inside a shape, say) falls through to spatie's own action
+     * unchanged - exactly today's behavior, not a regression, since nothing in this codebase's
+     * docblocks currently nests that deep.
+     */
+    private function resolveDocblockType(TypeNode $type, ?PhpClassNode $phpClassNode): TypeScriptNode
+    {
+        if ($type instanceof UnionTypeNode) {
+            return new TypeScriptUnion(array_map(fn(TypeNode $member) => $this->resolveDocblockType(
+                $member,
+                $phpClassNode,
+            ), $type->types));
+        }
+
+        if ($type instanceof IdentifierTypeNode && ($type->name === 'true' || $type->name === 'false')) {
+            return new TypeScriptLiteral($type->name === 'true');
+        }
+
+        if ($type instanceof ArrayShapeNode || $type instanceof ObjectShapeNode) {
+            return $this->resolveDocblockShape($type, $phpClassNode);
+        }
+
+        return $this->transpilePhpStanTypeToTypeScriptTypeAction->execute($type, $phpClassNode, []);
+    }
+
+    private function resolveDocblockShape(
+        ArrayShapeNode|ObjectShapeNode $node,
+        ?PhpClassNode $phpClassNode,
+    ): TypeScriptNode {
+        $properties = [];
+
+        foreach ($node->items as $item) {
+            $name = match ($item->keyName::class) {
+                IdentifierTypeNode::class => $item->keyName->name,
+                ConstExprStringNode::class => $item->keyName->value,
+                default => null,
+            };
+
+            if ($name === null) {
+                // A rarely-used const-fetch-expression key (e.g. `array{Foo::BAR: string}`) - defer
+                // to spatie's own action for the whole shape rather than partially reimplementing
+                // its const-fetch resolution for one property.
+                return $this->transpilePhpStanTypeToTypeScriptTypeAction->execute($node, $phpClassNode, []);
+            }
+
+            $properties[] = new TypeScriptProperty(
+                $name,
+                $this->resolveDocblockType($item->valueType, $phpClassNode),
+                isOptional: $item->optional,
+            );
+        }
+
+        return new TypeScriptObject($properties);
     }
 
     private function resolveClassOrEnum(string $fqcn): TypeScriptNode

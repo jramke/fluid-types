@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Provider;
 
 use Jramke\FluidPrimitives\Annotations\ClientArgumentAnnotation;
+use Jramke\FluidPrimitives\Annotations\RequiredAtRuntimeArgumentAnnotation;
 use Jramke\FluidPrimitives\Component\AbstractComponentCollection;
 use Jramke\FluidPrimitives\Service\ComponentCollectionService;
 use Jramke\FluidPrimitives\Utility\ClientPropsContextExtractor;
@@ -19,10 +20,13 @@ use Spatie\TypeScriptTransformer\TransformedProviders\TransformedProvider;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptAlias;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptIdentifier;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptIndexSignature;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNull;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptObject;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptProperty;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptRaw;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptString;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnion;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ArgumentDefinition;
 
@@ -138,15 +142,23 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
                 ));
             }
 
+            // A `requiredAtRuntime` ui:prop is still Fluid-optional (a caller need not pass it
+            // explicitly - it may come from a default, or another part of the component tree), but
+            // PropViewHelper itself throws during rendering if it's ever actually missing by the
+            // time the template runs - so by the time this reaches the wire, it's already
+            // guaranteed present, unlike a genuinely optional prop.
+            $isOptional = !$argumentDefinition->isRequired() && !$this->isRequiredAtRuntime($argumentDefinition);
+
             $properties[$name] = new TypeScriptProperty(
                 $name,
-                $this->wireTypeResolver->resolveTypeString($type),
-                isOptional: !$argumentDefinition->isRequired(),
+                $this->stripNullWhenOptional($this->wireTypeResolver->resolveTypeString($type), $isOptional),
+                isOptional: $isOptional,
             );
         }
 
         foreach ($contextProps as $name => $discovered) {
             $type = $this->wireTypeResolver->resolveMethodReturnType($discovered['method']);
+            $isOptional = $discovered['excludeIfNull'];
 
             // The key's presence is what `excludeIfNull` actually governs (a null result is
             // dropped from the wire entirely when true, sent verbatim otherwise) - not the type
@@ -154,7 +166,11 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
             // or native return type) either way. Forcing an extra `| null` here regardless of that
             // would be wrong for a method whose return type is genuinely non-nullable (e.g.
             // ClipboardContext::getTranslations(): array, no `?`).
-            $properties[$name] = new TypeScriptProperty($name, $type, isOptional: $discovered['excludeIfNull']);
+            $properties[$name] = new TypeScriptProperty(
+                $name,
+                $this->stripNullWhenOptional($type, $isOptional),
+                isOptional: $isOptional,
+            );
         }
 
         $typeName = ucfirst($baseName) . 'HydrationProps';
@@ -166,10 +182,51 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
         );
     }
 
+    /**
+     * A PHP-nullable optional prop (an unset `ui:prop`, or an `excludeIfNull` context method
+     * returning `null`) resolves its type with an explicit `| null` member - accurate to what PHP
+     * can send, but not what the client actually needs: every one of these props is read directly
+     * as a Zag machine constructor prop, and Zag's own machines treat an explicit `null` exactly
+     * like an absent/`undefined` prop when defaulting it (e.g. `@zag-js/slider`'s own
+     * `thumbSize: prop("thumbSize") || null` - a falsy/nullish check, not `=== undefined`). Once a
+     * property is already marked `isOptional` (rendered as `key?: T`, which is `T | undefined`),
+     * keeping a redundant `| null` in `T` itself only fights Zag's own prop types (which never
+     * declare `| null`) for no behavioral difference - so it's dropped here, not at generation
+     * time for a required prop, where `null` is a real, meaningful value the client must still see.
+     */
+    private function stripNullWhenOptional(TypeScriptNode $type, bool $isOptional): TypeScriptNode
+    {
+        if (!$isOptional || !$type instanceof TypeScriptUnion) {
+            return $type;
+        }
+
+        $withoutNull = array_values(array_filter(
+            $type->types,
+            static fn(TypeScriptNode $member) => !$member instanceof TypeScriptNull,
+        ));
+
+        if (count($withoutNull) === count($type->types)) {
+            return $type;
+        }
+
+        return count($withoutNull) === 1 ? $withoutNull[0] : new TypeScriptUnion($withoutNull);
+    }
+
     private function isClientArgument(ArgumentDefinition $argumentDefinition): bool
     {
         foreach ($argumentDefinition->getAnnotations() as $annotation) {
             if ($annotation instanceof ClientArgumentAnnotation) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isRequiredAtRuntime(ArgumentDefinition $argumentDefinition): bool
+    {
+        foreach ($argumentDefinition->getAnnotations() as $annotation) {
+            if ($annotation instanceof RequiredAtRuntimeArgumentAnnotation) {
                 return true;
             }
         }
