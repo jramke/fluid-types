@@ -67,22 +67,36 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
                 continue;
             }
 
+            // The same reverse lookup the runtime hydration registry itself uses (see
+            // ComponentIdentityResolver::resolve()) - a collection not globally registered under
+            // any Fluid namespace can't be hydrated at all, so it contributes nothing here either.
+            $namespaceIdentifier =
+                $this->componentCollectionService->getViewHelperNamespaceIdentifierByCollectionClassName(
+                    $collectionClass,
+                );
+            if ($namespaceIdentifier === null) {
+                continue;
+            }
+
             foreach ($this->componentEnumerator->enumerate($collection) as $viewHelperName) {
                 $baseName = $this->componentBaseName($viewHelperName);
+                $namespacedKey = "{$namespaceIdentifier}:{$baseName}";
 
-                // Hydration itself is keyed globally by (kebab) component name, not per collection
-                // (see getHydrationData()) - a styled "ui" wrapper that imports a primitive's own
-                // props wholesale via `ui:useProps` (e.g. docs' Select wrapper) is, for hydration
-                // purposes, the *same* component as the primitive it wraps, not a second one. The
-                // first collection a name is found in wins; a later collection's same-named
-                // component is skipped rather than silently overwriting it.
-                if (array_key_exists($baseName, $registryReferences)) {
+                // Hydration itself is keyed by namespace *and* component name (see
+                // HydrationRegistry::add()) - two collections can legitimately register a
+                // same-named component with a different shape (a styled wrapper around a primitive
+                // it doesn't expose every prop of), so both get their own generated type here too,
+                // keyed the same way. A collection registered under the same namespace identifier
+                // more than once (unusual, but Fluid allows several delegates per identifier) could
+                // still collide on this key - first one found wins in that case, silently, same as
+                // Fluid's own resolution order.
+                if (array_key_exists($namespacedKey, $registryReferences)) {
                     continue;
                 }
 
-                $transformed = $this->resolveComponent($collection, $viewHelperName, $baseName);
+                $transformed = $this->resolveComponent($collection, $viewHelperName, $baseName, $namespaceIdentifier);
                 $componentTransformeds[] = $transformed;
-                $registryReferences[$baseName] = new CustomReference('component', $baseName);
+                $registryReferences[$namespacedKey] = new CustomReference('component', $namespacedKey);
             }
         }
 
@@ -97,6 +111,7 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
         AbstractComponentCollection $collection,
         string $viewHelperName,
         string $baseName,
+        string $namespaceIdentifier,
     ): Transformed {
         // Keyed by prop name, not a plain list: a #[ExposeToClient] context prop overwrites a
         // same-named ui:prop-derived one below, mirroring ComponentHydrationCollector's own
@@ -174,11 +189,12 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
         }
 
         $typeName = ucfirst($baseName) . 'HydrationProps';
+        $namespacedKey = "{$namespaceIdentifier}:{$baseName}";
 
         return new Transformed(
             new TypeScriptAlias(new TypeScriptIdentifier($typeName), new TypeScriptObject(array_values($properties))),
-            new CustomReference('component', $baseName),
-            [],
+            new CustomReference('component', $namespacedKey),
+            [$namespaceIdentifier],
         );
     }
 
@@ -247,9 +263,11 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
         $lines = [];
         $references = [];
 
-        foreach ($registryReferences as $baseName => $reference) {
-            $lines[] = "        {$baseName}: %{$baseName}%;";
-            $references[$baseName] = $reference;
+        foreach ($registryReferences as $namespacedKey => $reference) {
+            // Quoted: "ui:select" isn't a valid bare TS property/identifier name (the colon isn't
+            // legal in one), unlike the old bare-name keys this replaced.
+            $lines[] = "        \"{$namespacedKey}\": %{$namespacedKey}%;";
+            $references[$namespacedKey] = $reference;
         }
 
         $body = implode("\n", $lines);
