@@ -38,27 +38,28 @@ final class GenerateTypesCommand extends Command
         parent::__construct();
     }
 
+    private const string MANIFEST_FILENAME = 'typescript-transformer-manifest.json';
+
     protected function configure(): void
     {
         $this->addOption(
             'output',
             null,
             InputOption::VALUE_REQUIRED,
-            'Output file path',
-            getcwd() . '/types.generated.d.ts',
+            'Output directory - one file per Fluid namespace, plus a shared one for classes/enums ' .
+            'and the HydrationPropsRegistry augmentation',
+            (string)getcwd() . '/types.generated',
         )->addOption(
             'check',
             null,
             InputOption::VALUE_NONE,
-            'Regenerate into memory and diff against the output file instead of writing it; exits non-zero on drift',
+            'Regenerate into memory and diff against the output directory instead of writing it; exits non-zero on drift',
         );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $outputPath = (string)$input->getOption('output');
-        $outputDirectory = dirname($outputPath);
-        $filename = basename($outputPath);
+        $outputDirectory = rtrim((string)$input->getOption('output'), '/');
 
         if (!is_dir($outputDirectory) && !mkdir($outputDirectory, recursive: true) && !is_dir($outputDirectory)) {
             $output->writeln("<error>Unable to create output directory: {$outputDirectory}</error>");
@@ -71,44 +72,76 @@ final class GenerateTypesCommand extends Command
             $this->packageResolver->getLocalClassesDirectories(),
         ));
 
+        // moduleFilename 'index.d.ts', not e.g. 'types.generated.d.ts': spatie's own
+        // ResolveRelativePathAction strips a trailing "index" segment from a cross-file import's
+        // target path, so a per-namespace file importing a shared class from the root file gets
+        // `from '../'` rather than `from '../index'`.
         $config = TypeScriptTransformerConfigFactory::create()
             ->outputDirectory($outputDirectory)
-            ->writer(new ModuleWriter(path: null, moduleFilename: $filename))
-            ->withoutManifest()
+            ->writer(new ModuleWriter(path: null, moduleFilename: 'index.d.ts'))
             ->provider($this->componentPropsProvider, $taggedClassesProvider)
             ->get();
 
         $transformer = TypeScriptTransformer::create($config, new SymfonyConsoleLogger($output));
         [$transformedCollection] = $transformer->resolveState();
 
-        $expected = '';
-        foreach ($transformer->resolveFilesAction->execute($transformedCollection) as $writeableFile) {
-            $expected .= $writeableFile->contents;
-        }
+        $writeableFiles = $transformer->resolveFilesAction->execute($transformedCollection);
 
         if ($input->getOption('check')) {
-            return $this->check($expected, $outputPath, $output);
+            return $this->check($writeableFiles, $outputDirectory, $output);
         }
 
-        file_put_contents($outputPath, $expected);
+        $transformer->writeFilesAction->execute($writeableFiles);
 
-        $output->writeln("<info>Generated {$outputPath}</info>");
+        foreach ($writeableFiles as $writeableFile) {
+            $output->writeln("<info>Generated {$outputDirectory}/{$writeableFile->path}</info>");
+        }
 
         return Command::SUCCESS;
     }
 
-    private function check(string $expected, string $outputPath, OutputInterface $output): int
+    /**
+     * @param array<\Spatie\TypeScriptTransformer\Data\WriteableFile> $writeableFiles
+     */
+    private function check(array $writeableFiles, string $outputDirectory, OutputInterface $output): int
     {
-        $actual = is_file($outputPath) ? file_get_contents($outputPath) : null;
+        $upToDate = true;
 
-        if ($actual === $expected) {
-            $output->writeln("<info>{$outputPath} is up to date.</info>");
+        foreach ($writeableFiles as $writeableFile) {
+            $path = $outputDirectory . '/' . $writeableFile->path;
+            $actual = is_file($path) ? file_get_contents($path) : null;
 
-            return Command::SUCCESS;
+            if ($actual !== $writeableFile->contents) {
+                $upToDate = false;
+                $output->writeln("<error>{$path} is out of date.</error>");
+            }
         }
 
-        $output->writeln("<error>{$outputPath} is out of date - run without --check to regenerate it.</error>");
+        // Orphan detection: a file the previous run generated but this run no longer produces (a
+        // component/collection was removed, or its namespace changed) - resolveFilesAction alone
+        // can't tell us this, only the manifest writeFilesAction itself maintains can.
+        $manifestPath = $outputDirectory . '/' . self::MANIFEST_FILENAME;
+        if (is_file($manifestPath)) {
+            $oldManifestContent = file_get_contents($manifestPath);
+            $decodedManifest = $oldManifestContent === false ? null : json_decode($oldManifestContent, true);
+            /** @var array<string, mixed> $oldManifest */
+            $oldManifest = is_array($decodedManifest) ? $decodedManifest : [];
+            $newPaths = array_map(static fn($file) => $file->path, $writeableFiles);
 
-        return Command::FAILURE;
+            foreach (array_diff(array_keys($oldManifest), $newPaths) as $stalePath) {
+                $upToDate = false;
+                $output->writeln("<error>{$outputDirectory}/{$stalePath} is stale (no longer generated).</error>");
+            }
+        }
+
+        if (!$upToDate) {
+            $output->writeln('<error>Run without --check to regenerate.</error>');
+
+            return Command::FAILURE;
+        }
+
+        $output->writeln("<info>{$outputDirectory} is up to date.</info>");
+
+        return Command::SUCCESS;
     }
 }
