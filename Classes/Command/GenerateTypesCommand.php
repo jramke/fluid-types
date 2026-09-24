@@ -59,7 +59,7 @@ final class GenerateTypesCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $outputDirectory = (string)$input->getOption('output');
+        $outputDirectory = rtrim((string)$input->getOption('output'), '/');
 
         if (!is_dir($outputDirectory) && !mkdir($outputDirectory, recursive: true) && !is_dir($outputDirectory)) {
             $output->writeln("<error>Unable to create output directory: {$outputDirectory}</error>");
