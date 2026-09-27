@@ -96,6 +96,10 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
                 }
 
                 $transformed = $this->resolveComponent($collection, $viewHelperName, $baseName, $namespaceIdentifier);
+                if ($transformed === null) {
+                    continue;
+                }
+
                 $componentTransformeds[] = $transformed;
                 $registryReferences[$namespacedKey] = new CustomReference('component', $namespacedKey);
             }
@@ -108,17 +112,20 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
         ];
     }
 
+    /**
+     * `null` when `$viewHelperName` exposes no client-facing prop at all (no `client="{true}"`
+     * `ui:prop`, no `#[ExposeToClient]` context method) - just `id`/`ids` is never useful to a
+     * consumer calling `mountAll`/`mount`, and would otherwise generate one for every discovered
+     * root, including every thin example wrapper that only composes real, already-typed
+     * components rather than exposing any data of its own.
+     */
     private function resolveComponent(
         AbstractComponentCollection $collection,
         string $viewHelperName,
         string $baseName,
         string $namespaceIdentifier,
-    ): Transformed {
-        // Keyed by prop name, not a plain list: a #[ExposeToClient] context prop overwrites a
-        // same-named ui:prop-derived one below, mirroring ComponentHydrationCollector's own
-        // [...$propsMarkedForClientValues, ...$clientPropsFromContext] spread order at runtime -
-        // not two colliding properties of the same name.
-        $properties = [
+    ): ?Transformed {
+        $defaultProperties = [
             'id' => new TypeScriptProperty('id', new TypeScriptString()),
             'ids' => new TypeScriptProperty('ids', new TypeScriptObject([
                 new TypeScriptProperty(
@@ -127,6 +134,12 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
                 ),
             ])),
         ];
+
+        // Keyed by prop name, not a plain list: a #[ExposeToClient] context prop overwrites a
+        // same-named ui:prop-derived one below, mirroring ComponentHydrationCollector's own
+        // [...$propsMarkedForClientValues, ...$clientPropsFromContext] spread order at runtime -
+        // not two colliding properties of the same name.
+        $properties = $defaultProperties;
 
         // getContextClassNameFromViewHelperName() expects the resolved, `/`-separated template
         // path (see its own docblock), not the raw dotted viewHelperName - the same conversion
@@ -192,6 +205,11 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
                 $this->stripNullWhenOptional($type, $isOptional),
                 isOptional: $isOptional,
             );
+        }
+
+        if ($properties === $defaultProperties) {
+            // Only the id/ids baseline is here - nothing was ever added by either loop above.
+            return null;
         }
 
         // $baseName can be dot-joined (a tiered or independently-root-nested identity, e.g.
