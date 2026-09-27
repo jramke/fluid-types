@@ -9,6 +9,7 @@ use Jramke\FluidPrimitives\Annotations\RequiredAtRuntimeArgumentAnnotation;
 use Jramke\FluidPrimitives\Component\AbstractComponentCollection;
 use Jramke\FluidPrimitives\Service\ComponentCollectionService;
 use Jramke\FluidPrimitives\Utility\ClientPropsContextExtractor;
+use Jramke\FluidPrimitives\Utility\ComponentNameUtility;
 use Jramke\FluidPrimitives\Utility\ComponentUtility;
 use Jramke\FluidTypes\Discovery\RootComponentEnumerator;
 use Jramke\FluidTypes\Resolver\WireTypeResolver;
@@ -127,8 +128,13 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
             ])),
         ];
 
+        // getContextClassNameFromViewHelperName() expects the resolved, `/`-separated template
+        // path (see its own docblock), not the raw dotted viewHelperName - the same conversion
+        // ComponentRootContextFactory does at the real runtime call site. Skipping it here always
+        // silently fell back to the generic BaseContext (a dotted string is never a valid PHP
+        // class name), so every #[ExposeToClient] context prop went undiscovered.
         $contextClass = ComponentUtility::getContextClassNameFromViewHelperName(
-            $viewHelperName,
+            $collection->resolveTemplateName($viewHelperName),
             $collection->getContextNamespaces(),
         );
 
@@ -188,7 +194,11 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
             );
         }
 
-        $typeName = ucfirst($baseName) . 'HydrationProps';
+        // $baseName can be dot-joined (a tiered or independently-root-nested identity, e.g.
+        // "molecules.checkboxGroup") - PascalCase each segment and drop the dots, since a bare
+        // dot isn't valid inside a TypeScript identifier the way it is inside this key's own
+        // quoted string form just below.
+        $typeName = implode('', array_map(ucfirst(...), explode('.', $baseName))) . 'HydrationProps';
         $namespacedKey = "{$namespaceIdentifier}:{$baseName}";
 
         return new Transformed(
@@ -250,9 +260,13 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
         return false;
     }
 
+    /**
+     * `$viewHelperName` here is always one `$componentEnumerator->enumerate()` already classified
+     * as root, so `isDeclaredRoot: true` always holds - never a subcomponent's own name.
+     */
     private function componentBaseName(string $viewHelperName): string
     {
-        return lcfirst(explode('.', $viewHelperName)[0]);
+        return ComponentNameUtility::getComponentBaseNameFromViewHelperName($viewHelperName, isDeclaredRoot: true);
     }
 
     /**
