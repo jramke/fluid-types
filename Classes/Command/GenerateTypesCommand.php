@@ -7,6 +7,7 @@ namespace Jramke\FluidTypes\Command;
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
 use Jramke\FluidTypes\Provider\FlattenedLocationProvider;
+use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
 use Spatie\TypeScriptTransformer\Support\Loggers\SymfonyConsoleLogger;
 use Spatie\TypeScriptTransformer\TransformedProviders\TransformerProvider;
 use Spatie\TypeScriptTransformer\Transformers\AttributedClassTransformer;
@@ -80,6 +81,7 @@ final class GenerateTypesCommand extends Command
             ->outputDirectory($outputDirectory)
             ->writer(new ModuleWriter(path: null, moduleFilename: 'index.d.ts'))
             ->provider($this->componentPropsProvider, $taggedClassesProvider)
+            ->formatter(new PrettierFormatter())
             ->get();
 
         $transformer = TypeScriptTransformer::create($config, new SymfonyConsoleLogger($output));
@@ -92,6 +94,7 @@ final class GenerateTypesCommand extends Command
         }
 
         $transformer->writeFilesAction->execute($writeableFiles);
+        $transformer->formatFilesAction->execute($writeableFiles);
 
         foreach ($writeableFiles as $writeableFile) {
             $output->writeln("<info>Generated {$outputDirectory}/{$writeableFile->path}</info>");
