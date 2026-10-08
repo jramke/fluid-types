@@ -117,11 +117,13 @@ final class RootComponentEnumerator
         $names = [];
         $subdirectories = [];
 
-        foreach (scandir($directory) ?: [] as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
+        $entries = array_diff(scandir($directory) ?: [], ['.', '..']);
+        $hasRootTemplate = array_filter(
+            $entries,
+            static fn(string $entry): bool => str_ends_with($entry, '.html') && explode('.', $entry)[0] === 'Root',
+        ) !== [];
 
+        foreach ($entries as $entry) {
             $entryPath = $directory . '/' . $entry;
             if (is_dir($entryPath)) {
                 $realEntryPath = realpath($entryPath);
@@ -139,8 +141,12 @@ final class RootComponentEnumerator
                 continue;
             }
 
+            // With a Root next to it, a file named like its folder (`Input/Input.html`) is just a
+            // part (`input.input`), not a single-file component - bare, it would be a second
+            // root candidate for the same component and, being found before `Input.Root`, win
+            // its generated type with only the context's props instead of the Root's `ui:prop`s.
             $fileName = explode('.', $entry)[0];
-            $names[] = $fileName === $directoryOwnName
+            $names[] = $fileName === $directoryOwnName && !$hasRootTemplate
                 ? rtrim($viewHelperPrefix, characters: '.')
                 : $viewHelperPrefix . $fileName;
         }
