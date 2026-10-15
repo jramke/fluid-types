@@ -23,6 +23,7 @@ use Spatie\TypeScriptTransformer\Transformed\Untransformable;
 use Spatie\TypeScriptTransformer\Transformers\AttributedClassTransformer;
 use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
 use Spatie\TypeScriptTransformer\TypeResolvers\DocTypeResolver;
+use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptAny;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptArray;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptBoolean;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptLiteral;
@@ -35,7 +36,6 @@ use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptReference;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptString;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUndefined;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnion;
-use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnknown;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 
 /**
@@ -104,7 +104,7 @@ final class WireTypeResolver
         $phpType = trim($phpType);
 
         if ($phpType === '' || strtolower($phpType) === 'mixed') {
-            return new TypeScriptUnknown();
+            return new TypeScriptAny();
         }
 
         if (str_starts_with($phpType, '?')) {
@@ -133,13 +133,14 @@ final class WireTypeResolver
             // None of these carry enough shape info to guess from: a bare `array` could be a JSON
             // array *or* object once encoded (an associative array encodes to a JS object, a list
             // to a JS array - see isBareArrayType()); `object`/`iterable`/`countable` name no
-            // specific class at all. `unknown` makes no claim either way rather than risking false
-            // information (e.g. for `positioning`/`translations`, which are actually objects).
-            'array', 'object', 'iterable', 'countable' => new TypeScriptUnknown(),
+            // specific class at all. `any`, not `unknown`: `unknown` is not assignable to the
+            // concrete machine prop types (e.g. `translations`/`positioning` are objects), so a
+            // strict `tsc` rejects every registry entry passing them on.
+            'array', 'object', 'iterable', 'countable' => new TypeScriptAny(),
             'null' => new TypeScriptNull(),
             'void' => new TypeScriptUndefined(),
             // A callable cannot be sent to the client at all - there is no wire representation for
-            // it, so this is a real, clear generation-time error rather than a fallback to unknown.
+            // it, so this is a real, clear generation-time error rather than a fallback to any.
             'callable' => throw new RuntimeException(
                 'Cannot generate a client type for a "callable" prop - a callable cannot be sent to the client.',
             ),

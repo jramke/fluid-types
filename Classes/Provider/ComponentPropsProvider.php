@@ -42,6 +42,9 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
 {
     private ?Logger $logger = null;
 
+    /** @var list<string> bare `type="array"` ui:props, as "Component.prop" */
+    private array $bareArrayProps = [];
+
     public function __construct(
         private readonly ComponentCollectionService $componentCollectionService,
         private readonly RootComponentEnumerator $componentEnumerator,
@@ -60,6 +63,7 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
     {
         $componentTransformeds = [];
         $registryReferences = [];
+        $this->bareArrayProps = [];
 
         foreach ($this->componentCollectionService->discoverCollections() as $collectionClass) {
             $collection = GeneralUtility::makeInstance($collectionClass);
@@ -102,6 +106,18 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
 
                 $componentTransformeds[] = $transformed;
                 $registryReferences[$namespacedKey] = new CustomReference('component', $namespacedKey);
+            }
+        }
+
+        if ($this->bareArrayProps !== []) {
+            $this->logger?->warning(sprintf(
+                '%d client props are declared type="array" and generated as "any". If one is a ' .
+                'one-dimensional list, declare it as e.g. type="string[]" for a precise type. ' .
+                'Run with -v to list them.',
+                count($this->bareArrayProps),
+            ));
+            foreach ($this->bareArrayProps as $bareArrayProp) {
+                $this->logger?->debug($bareArrayProp . ' is declared type="array"');
             }
         }
 
@@ -168,12 +184,7 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
             $type = $argumentDefinition->getType();
 
             if ($this->wireTypeResolver->isBareArrayType($type) && !array_key_exists($name, $contextProps)) {
-                $this->logger?->warning(sprintf(
-                    '%s.%s is declared type="array" - if it\'s actually a one-dimensional list, ' .
-                    'declare it as e.g. type="string[]" for a precise generated type instead of "unknown".',
-                    $baseName,
-                    $name,
-                ));
+                $this->bareArrayProps[] = "{$baseName}.{$name}";
             }
 
             // A `requiredAtRuntime` ui:prop is still Fluid-optional (a caller need not pass it

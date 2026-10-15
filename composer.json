@@ -25,5 +25,16 @@
         "typo3/cms": {
             "extension-key": "fluid_types"
         }
+    },
+    "scripts": {
+        "test": "phpunit -c phpunit.xml --testdox"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Jramke\\FluidTypes\\Tests\\": "tests/"
+        }
     }
 }
