@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Transformers;
 
 use JsonSerializable;
+use PHPStan\PhpDocParser\Ast\Type\TypeNode;
 use RuntimeException;
 use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
+use Spatie\TypeScriptTransformer\PhpNodes\PhpMethodNode;
 use Spatie\TypeScriptTransformer\Transformers\ClassTransformer;
 use Spatie\TypeScriptTransformer\TypeResolvers\Data\ParsedClass;
+use Spatie\TypeScriptTransformer\TypeResolvers\Data\ParsedMethod;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
 
 /**
@@ -41,6 +44,7 @@ final class JsonSerializableClassTransformer extends ClassTransformer
         );
     }
 
+    #[\Override]
     protected function getTypeScriptNode(
         PhpClassNode $phpClassNode,
         TransformationContext $context,
@@ -48,28 +52,32 @@ final class JsonSerializableClassTransformer extends ClassTransformer
     ): TypeScriptNode {
         $documentedShape = $this->resolveJsonSerializeShape($phpClassNode);
 
-        if ($documentedShape !== null) {
+        if ($documentedShape instanceof TypeScriptNode) {
             return $documentedShape;
         }
 
-        throw new RuntimeException(sprintf(
-            'Cannot generate a client type for "%s": it implements JsonSerializable, but ' .
-            'jsonSerialize() has no documented "@return array{...}" shape describing what it ' .
-            'actually returns. Add one - if you don\'t own this class, expose a plain, already-' .
-            'flattened value from your own Context or ViewHelper code instead of the raw object.',
-            $phpClassNode->getName(),
-        ));
+        throw new RuntimeException(
+            sprintf(
+                'Cannot generate a client type for "%s": it implements JsonSerializable, but ' .
+                'jsonSerialize() has no documented "@return array{...}" shape describing what it ' .
+                'actually returns. Add one - if you don\'t own this class, expose a plain, already-' .
+                'flattened value from your own Context or ViewHelper code instead of the raw object.',
+                $phpClassNode->getName(),
+            ),
+            7581211895,
+        );
     }
 
     private function resolveJsonSerializeShape(PhpClassNode $phpClassNode): ?TypeScriptNode
     {
-        if (!$phpClassNode->hasMethod('jsonSerialize')) {
+        $method = $phpClassNode->getMethod('jsonSerialize');
+        if (!$method instanceof PhpMethodNode) {
             return null;
         }
 
-        $parsedMethod = $this->docTypeResolver->method($phpClassNode->getMethod('jsonSerialize'));
+        $parsedMethod = $this->docTypeResolver->method($method);
 
-        if ($parsedMethod === null || $parsedMethod->returnType === null) {
+        if (!$parsedMethod instanceof ParsedMethod || !$parsedMethod->returnType instanceof TypeNode) {
             return null;
         }
 

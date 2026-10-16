@@ -7,6 +7,7 @@ namespace Jramke\FluidTypes\Command;
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
 use Jramke\FluidTypes\Provider\FlattenedLocationProvider;
+use Spatie\TypeScriptTransformer\Data\WriteableFile;
 use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
 use Spatie\TypeScriptTransformer\Support\Loggers\SymfonyConsoleLogger;
 use Spatie\TypeScriptTransformer\TransformedProviders\TransformerProvider;
@@ -60,7 +61,7 @@ final class GenerateTypesCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $outputDirectory = rtrim((string)$input->getOption('output'), '/');
+        $outputDirectory = rtrim((string)$input->getOption('output'), characters: '/');
 
         if (!is_dir($outputDirectory) && !mkdir($outputDirectory, recursive: true) && !is_dir($outputDirectory)) {
             $output->writeln("<error>Unable to create output directory: {$outputDirectory}</error>");
@@ -104,7 +105,7 @@ final class GenerateTypesCommand extends Command
     }
 
     /**
-     * @param array<\Spatie\TypeScriptTransformer\Data\WriteableFile> $writeableFiles
+     * @param array<WriteableFile> $writeableFiles
      */
     private function check(array $writeableFiles, string $outputDirectory, OutputInterface $output): int
     {
@@ -126,7 +127,11 @@ final class GenerateTypesCommand extends Command
         $manifestPath = $outputDirectory . '/' . self::MANIFEST_FILENAME;
         if (is_file($manifestPath)) {
             $oldManifestContent = file_get_contents($manifestPath);
-            $decodedManifest = $oldManifestContent === false ? null : json_decode($oldManifestContent, true);
+            // Narrowed by is_array() below: the decoded JSON is untyped by nature.
+            // @mago-expect analysis:mixed-assignment
+            $decodedManifest = $oldManifestContent === false
+                ? null
+                : json_decode($oldManifestContent, associative: true);
             /** @var array<string, mixed> $oldManifest */
             $oldManifest = is_array($decodedManifest) ? $decodedManifest : [];
             $newPaths = array_map(static fn($file) => $file->path, $writeableFiles);

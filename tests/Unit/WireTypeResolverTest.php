@@ -30,7 +30,9 @@ final class WireTypeResolverTest extends TestCase
     #[DataProvider('ambiguousTypes')]
     public function ambiguousTypesResolveToAnyNeverUnknown(string $phpType, string $expected): void
     {
-        $typeScript = (new WireTypeResolver())->resolveTypeString($phpType)->write(new WritingContext([]));
+        $typeScript = (new WireTypeResolver())
+            ->resolveTypeString($phpType)
+            ->write(new WritingContext([]));
 
         self::assertSame($expected, $typeScript);
         self::assertStringNotContainsString('unknown', $typeScript);
