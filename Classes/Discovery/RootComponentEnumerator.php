@@ -60,7 +60,7 @@ final class RootComponentEnumerator
             }
 
             foreach ($this->findTemplateNames($rootPath, '', '', $otherRootPaths) as $candidate) {
-                if (isset($viewHelperNames[$candidate])) {
+                if (array_key_exists($candidate, $viewHelperNames)) {
                     continue;
                 }
 

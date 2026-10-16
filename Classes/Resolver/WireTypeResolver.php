@@ -66,9 +66,9 @@ final class WireTypeResolver
     /** @var array<class-string, true> */
     private array $inProgress = [];
 
-    private DocTypeResolver $docTypeResolver;
+    private readonly DocTypeResolver $docTypeResolver;
 
-    private TranspilePhpStanTypeToTypeScriptNodeAction $transpilePhpStanTypeToTypeScriptTypeAction;
+    private readonly TranspilePhpStanTypeToTypeScriptNodeAction $transpilePhpStanTypeToTypeScriptTypeAction;
 
     public function __construct()
     {
@@ -90,7 +90,7 @@ final class WireTypeResolver
         $phpMethodNode = new PhpMethodNode($method);
         $parsedMethod = $this->docTypeResolver->method($phpMethodNode);
 
-        if ($parsedMethod?->returnType !== null) {
+        if ($parsedMethod?->returnType instanceof TypeNode) {
             return $this->resolveDocblockType($parsedMethod->returnType, $phpMethodNode->getDeclaringClass());
         }
 
@@ -109,20 +109,17 @@ final class WireTypeResolver
 
         if (str_starts_with($phpType, '?')) {
             return new TypeScriptUnion([
-                $this->resolveTypeString(substr($phpType, 1)),
+                $this->resolveTypeString(substr($phpType, offset: 1)),
                 new TypeScriptNull(),
             ]);
         }
 
         if (str_contains($phpType, '|')) {
-            return new TypeScriptUnion(array_map(
-                fn(string $part) => $this->resolveTypeString($part),
-                explode('|', $phpType),
-            ));
+            return new TypeScriptUnion(array_map($this->resolveTypeString(...), explode('|', $phpType)));
         }
 
         if (str_ends_with($phpType, '[]')) {
-            return new TypeScriptArray([$this->resolveTypeString(substr($phpType, 0, -2))]);
+            return new TypeScriptArray([$this->resolveTypeString(substr($phpType, offset: 0, length: -2))]);
         }
 
         return match (strtolower($phpType)) {
@@ -143,8 +140,9 @@ final class WireTypeResolver
             // it, so this is a real, clear generation-time error rather than a fallback to any.
             'callable' => throw new RuntimeException(
                 'Cannot generate a client type for a "callable" prop - a callable cannot be sent to the client.',
+                5191624609,
             ),
-            default => $this->resolveClassOrEnum(ltrim($phpType, '\\')),
+            default => $this->resolveClassOrEnum(ltrim($phpType, characters: '\\')),
         };
     }
 
@@ -156,7 +154,7 @@ final class WireTypeResolver
      */
     public function isBareArrayType(string $phpType): bool
     {
-        return strtolower(ltrim(trim($phpType), '?')) === 'array';
+        return strtolower(ltrim(trim($phpType), characters: '?')) === 'array';
     }
 
     /**
@@ -211,9 +209,10 @@ final class WireTypeResolver
         $properties = [];
 
         foreach ($node->items as $item) {
-            $name = match ($item->keyName::class) {
-                IdentifierTypeNode::class => $item->keyName->name,
-                ConstExprStringNode::class => $item->keyName->value,
+            $keyName = $item->keyName;
+            $name = match (true) {
+                $keyName instanceof IdentifierTypeNode => $keyName->name,
+                $keyName instanceof ConstExprStringNode => $keyName->value,
                 default => null,
             };
 
@@ -237,7 +236,10 @@ final class WireTypeResolver
     private function resolveClassOrEnum(string $fqcn): TypeScriptNode
     {
         if (!class_exists($fqcn) && !enum_exists($fqcn) && !interface_exists($fqcn)) {
-            throw new RuntimeException(sprintf('Cannot resolve unknown type "%s" for a client prop.', $fqcn));
+            throw new RuntimeException(
+                sprintf('Cannot resolve unknown type "%s" for a client prop.', $fqcn),
+                1964054794,
+            );
         }
 
         $this->ensureResolved($fqcn);
@@ -245,9 +247,12 @@ final class WireTypeResolver
         return TypeScriptReference::referencingPhpClass($fqcn);
     }
 
+    /**
+     * @param class-string $fqcn
+     */
     private function ensureResolved(string $fqcn): void
     {
-        if (isset($this->classTransformeds[$fqcn]) || isset($this->inProgress[$fqcn])) {
+        if (array_key_exists($fqcn, $this->classTransformeds) || array_key_exists($fqcn, $this->inProgress)) {
             return;
         }
 
@@ -267,11 +272,14 @@ final class WireTypeResolver
         unset($this->inProgress[$fqcn]);
 
         if ($transformed instanceof Untransformable) {
-            throw new RuntimeException(sprintf(
-                'Cannot generate a client type for "%s": it must implement JsonSerializable to be ' .
-                'used as a client-facing prop.',
-                $fqcn,
-            ));
+            throw new RuntimeException(
+                sprintf(
+                    'Cannot generate a client type for "%s": it must implement JsonSerializable to be ' .
+                    'used as a client-facing prop.',
+                    $fqcn,
+                ),
+                4738794604,
+            );
         }
 
         $transformed->setLocation([]);

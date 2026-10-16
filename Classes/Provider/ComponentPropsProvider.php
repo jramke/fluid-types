@@ -100,7 +100,7 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
                 }
 
                 $transformed = $this->resolveComponent($collection, $viewHelperName, $baseName, $namespaceIdentifier);
-                if ($transformed === null) {
+                if (!$transformed instanceof Transformed) {
                     continue;
                 }
 
