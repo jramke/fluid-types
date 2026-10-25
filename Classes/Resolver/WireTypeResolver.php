@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Resolver;
 
+use Jramke\FluidPrimitives\Contracts\ConvertibleArgumentInterface;
 use Jramke\FluidTypes\Transformers\JsonSerializableClassTransformer;
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
@@ -38,6 +39,7 @@ use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUndefined;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnion;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 
+// @mago-expect lint:kan-defect
 /**
  * Resolves a single prop's wire (JSON) type from its PHP type string - the one rule shared by
  * `ui:prop client="{true}"` arguments and `#[ExposeToClient]` context methods alike. Covers the
@@ -115,7 +117,19 @@ final class WireTypeResolver
         }
 
         if (str_contains($phpType, '|')) {
-            return new TypeScriptUnion(array_map($this->resolveTypeString(...), explode('|', $phpType)));
+            $members = explode('|', $phpType);
+
+            // `array|ListCollection`: the array form is converted into the object before the component renders
+            // (see ConvertibleArgumentUtility), so the object is all the client ever gets.
+            $convertibleMembers = array_filter($members, static fn(string $member): bool => is_subclass_of(
+                ltrim(trim($member), characters: '\\'),
+                ConvertibleArgumentInterface::class,
+            ));
+            if (count($convertibleMembers) === 1) {
+                return $this->resolveTypeString(array_values($convertibleMembers)[0]);
+            }
+
+            return new TypeScriptUnion(array_map($this->resolveTypeString(...), $members));
         }
 
         if (str_ends_with($phpType, '[]')) {
