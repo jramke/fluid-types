@@ -282,7 +282,6 @@ final class WireTypeResolver
             );
         }
 
-        $transformed->setLocation([]);
         $this->classTransformeds[$fqcn] = $transformed;
     }
 }
