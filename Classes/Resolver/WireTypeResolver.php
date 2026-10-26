@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Resolver;
 
+use Jramke\FluidPrimitives\Exception\ConfigurationException;
 use Jramke\FluidTypes\Transformers\JsonSerializableClassTransformer;
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
@@ -13,7 +14,6 @@ use PHPStan\PhpDocParser\Ast\Type\TypeNode;
 use PHPStan\PhpDocParser\Ast\Type\UnionTypeNode;
 use ReflectionClass;
 use ReflectionMethod;
-use RuntimeException;
 use Spatie\TypeScriptTransformer\Actions\TranspilePhpStanTypeToTypeScriptNodeAction;
 use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
@@ -138,7 +138,7 @@ final class WireTypeResolver
             'void' => new TypeScriptUndefined(),
             // A callable cannot be sent to the client at all - there is no wire representation for
             // it, so this is a real, clear generation-time error rather than a fallback to any.
-            'callable' => throw new RuntimeException(
+            'callable' => throw new ConfigurationException(
                 'Cannot generate a client type for a "callable" prop - a callable cannot be sent to the client.',
                 5191624609,
             ),
@@ -236,7 +236,7 @@ final class WireTypeResolver
     private function resolveClassOrEnum(string $fqcn): TypeScriptNode
     {
         if (!class_exists($fqcn) && !enum_exists($fqcn) && !interface_exists($fqcn)) {
-            throw new RuntimeException(
+            throw new ConfigurationException(
                 sprintf('Cannot resolve unknown type "%s" for a client prop.', $fqcn),
                 1964054794,
             );
@@ -272,7 +272,7 @@ final class WireTypeResolver
         unset($this->inProgress[$fqcn]);
 
         if ($transformed instanceof Untransformable) {
-            throw new RuntimeException(
+            throw new ConfigurationException(
                 sprintf(
                     'Cannot generate a client type for "%s": it must implement JsonSerializable to be ' .
                     'used as a client-facing prop.',
