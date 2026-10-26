@@ -7,3 +7,5 @@ vendor
 public
 composer.lock
 .phpunit.cache
+.phpunit.cache
+.phpunit.result.cache
