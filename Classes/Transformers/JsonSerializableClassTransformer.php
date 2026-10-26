@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Transformers;
 
+use Jramke\FluidPrimitives\Exception\ConfigurationException;
 use JsonSerializable;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
-use RuntimeException;
 use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
@@ -56,7 +56,7 @@ final class JsonSerializableClassTransformer extends ClassTransformer
             return $documentedShape;
         }
 
-        throw new RuntimeException(
+        throw new ConfigurationException(
             sprintf(
                 'Cannot generate a client type for "%s": it implements JsonSerializable, but ' .
                 'jsonSerialize() has no documented "@return array{...}" shape describing what it ' .
