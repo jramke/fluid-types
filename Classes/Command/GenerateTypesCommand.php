@@ -6,15 +6,14 @@ namespace Jramke\FluidTypes\Command;
 
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
-use Jramke\FluidTypes\Provider\FlattenedLocationProvider;
+use Jramke\FluidTypes\Validation\TypeNameCollisionValidator;
 use Spatie\TypeScriptTransformer\Data\WriteableFile;
 use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
 use Spatie\TypeScriptTransformer\Support\Loggers\SymfonyConsoleLogger;
-use Spatie\TypeScriptTransformer\TransformedProviders\TransformerProvider;
 use Spatie\TypeScriptTransformer\Transformers\AttributedClassTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformerConfigFactory;
-use Spatie\TypeScriptTransformer\Writers\ModuleWriter;
+use Spatie\TypeScriptTransformer\Writers\GlobalNamespaceWriter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -42,14 +41,17 @@ final class GenerateTypesCommand extends Command
 
     private const string MANIFEST_FILENAME = 'typescript-transformer-manifest.json';
 
+    private const string TYPES_FILENAME = 'types.d.ts';
+
     protected function configure(): void
     {
         $this->addOption(
             'output',
             null,
             InputOption::VALUE_REQUIRED,
-            'Output directory - one file per Fluid namespace, plus a shared one for classes/enums ' .
-            'and the HydrationPropsRegistry augmentation',
+            'Output directory - types.d.ts declares every type in a TypeScript namespace (the Fluid ' .
+            'namespace for components, the PHP namespace for classes/enums), registry.d.ts augments ' .
+            'HydrationPropsRegistry',
             (string)getcwd() . '/types.generated',
         )->addOption(
             'check',
@@ -69,24 +71,24 @@ final class GenerateTypesCommand extends Command
             return Command::FAILURE;
         }
 
-        $taggedClassesProvider = new FlattenedLocationProvider(new TransformerProvider(
-            [new AttributedClassTransformer()],
-            $this->packageResolver->getLocalClassesDirectories(),
-        ));
-
-        // moduleFilename 'index.d.ts', not e.g. 'types.generated.d.ts': spatie's own
-        // ResolveRelativePathAction strips a trailing "index" segment from a cross-file import's
-        // target path, so a per-namespace file importing a shared class from the root file gets
-        // `from '../'` rather than `from '../index'`.
-        $config = TypeScriptTransformerConfigFactory::create()
+        $configFactory = TypeScriptTransformerConfigFactory::create()
             ->outputDirectory($outputDirectory)
-            ->writer(new ModuleWriter(path: null, moduleFilename: 'index.d.ts'))
-            ->provider($this->componentPropsProvider, $taggedClassesProvider)
-            ->formatter(new PrettierFormatter())
-            ->get();
+            ->writer(new GlobalNamespaceWriter(self::TYPES_FILENAME))
+            ->provider($this->componentPropsProvider)
+            ->formatter(new PrettierFormatter());
+
+        // spatie refuses transformers without a directory to scan.
+        $classesDirectories = $this->packageResolver->getLocalClassesDirectories();
+        if ($classesDirectories !== []) {
+            $configFactory->transformer(new AttributedClassTransformer())->transformDirectories(...$classesDirectories);
+        }
+
+        $config = $configFactory->get();
 
         $transformer = TypeScriptTransformer::create($config, new SymfonyConsoleLogger($output));
         [$transformedCollection] = $transformer->resolveState();
+
+        TypeNameCollisionValidator::assertUnique($transformedCollection);
 
         $writeableFiles = $transformer->resolveFilesAction->execute($transformedCollection);
 

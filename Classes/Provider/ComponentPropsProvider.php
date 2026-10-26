@@ -16,6 +16,7 @@ use Spatie\TypeScriptTransformer\Transformed\Transformed;
 use Spatie\TypeScriptTransformer\TransformedProviders\LoggingTransformedProvider;
 use Spatie\TypeScriptTransformer\TransformedProviders\TransformedProvider;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptRaw;
+use Spatie\TypeScriptTransformer\Writers\ModuleWriter;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -146,14 +147,17 @@ final class ComponentPropsProvider implements TransformedProvider, LoggingTransf
 
         $body = implode("\n", $lines);
 
+        // Its own module file: `declare module` only augments 'fluid-primitives' in a file that is a
+        // module (hence `export {}`), while every other type lives in the global namespace file.
         return new Transformed(
             new TypeScriptRaw(
-                "declare module 'fluid-primitives' {\n    interface HydrationPropsRegistry {\n{$body}\n    }\n}\n",
+                "export {};\n\ndeclare module 'fluid-primitives' {\n    interface HydrationPropsRegistry {\n{$body}\n    }\n}\n",
                 references: $references,
             ),
             new CustomReference('registry', 'HydrationPropsRegistry'),
             [],
             export: false,
+            writer: new ModuleWriter(path: null, moduleFilename: 'registry.d.ts'),
         );
     }
 }
