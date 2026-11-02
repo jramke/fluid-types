@@ -2,7 +2,7 @@
     "name": "jramke/fluid-types",
     "type": "typo3-cms-extension",
     "description": "Generates TypeScript types from Fluid Primitives component props and any #[TypeScript]-tagged PHP class in a TYPO3 project.",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "homepage": "https://joostramke.com",
     "license": [
         "MIT"
@@ -13,7 +13,7 @@
     "require": {
         "php": ">=8.3",
         "typo3/cms-core": "^14",
-        "jramke/fluid-primitives": "*",
+        "jramke/fluid-primitives": "^1.0.0-beta.6",
         "spatie/typescript-transformer": "^3.3"
     },
     "autoload": {
