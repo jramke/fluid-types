@@ -12,7 +12,7 @@
     ],
     "require": {
         "php": ">=8.3",
-        "typo3/cms-core": "^14",
+        "typo3/cms-core": "^14.1",
         "jramke/fluid-primitives": "^1.0.0-beta.6",
         "spatie/typescript-transformer": "^3.3"
     },
