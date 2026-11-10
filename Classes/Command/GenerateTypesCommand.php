@@ -57,7 +57,7 @@ final class GenerateTypesCommand extends Command
             'check',
             null,
             InputOption::VALUE_NONE,
-            'Regenerate into memory and diff against the output directory instead of writing it; exits non-zero on drift',
+            'Compare a fresh run with the manifest in the output directory instead of writing it; exits non-zero on drift',
         );
     }
 
@@ -112,12 +112,21 @@ final class GenerateTypesCommand extends Command
     private function check(array $writeableFiles, string $outputDirectory, OutputInterface $output): int
     {
         $upToDate = true;
+        $manifestPath = $outputDirectory . '/' . self::MANIFEST_FILENAME;
+        $oldManifestContent = is_file($manifestPath) ? file_get_contents($manifestPath) : false;
+        // Narrowed by is_array() below: the decoded JSON is untyped by nature.
+        // @mago-expect analysis:mixed-assignment
+        $decodedManifest = $oldManifestContent === false ? null : json_decode($oldManifestContent, associative: true);
+        /** @var array<string, mixed> $oldManifest */
+        $oldManifest = is_array($decodedManifest) ? $decodedManifest : [];
 
+        // The files on disk are formatted after the write, so their contents never equal the generated
+        // ones. Like a normal run, compare the hash of the generated contents in the manifest instead,
+        // and regenerate whatever it does not match or whatever is missing.
         foreach ($writeableFiles as $writeableFile) {
             $path = $outputDirectory . '/' . $writeableFile->path;
-            $actual = is_file($path) ? file_get_contents($path) : null;
 
-            if ($actual !== $writeableFile->contents) {
+            if (!is_file($path) || ($oldManifest[$writeableFile->path] ?? null) !== $writeableFile->hash) {
                 $upToDate = false;
                 $output->writeln("<error>{$path} is out of date.</error>");
             }
@@ -126,22 +135,11 @@ final class GenerateTypesCommand extends Command
         // Orphan detection: a file the previous run generated but this run no longer produces (a
         // component/collection was removed, or its namespace changed) - resolveFilesAction alone
         // can't tell us this, only the manifest writeFilesAction itself maintains can.
-        $manifestPath = $outputDirectory . '/' . self::MANIFEST_FILENAME;
-        if (is_file($manifestPath)) {
-            $oldManifestContent = file_get_contents($manifestPath);
-            // Narrowed by is_array() below: the decoded JSON is untyped by nature.
-            // @mago-expect analysis:mixed-assignment
-            $decodedManifest = $oldManifestContent === false
-                ? null
-                : json_decode($oldManifestContent, associative: true);
-            /** @var array<string, mixed> $oldManifest */
-            $oldManifest = is_array($decodedManifest) ? $decodedManifest : [];
-            $newPaths = array_map(static fn($file) => $file->path, $writeableFiles);
+        $newPaths = array_map(static fn($file) => $file->path, $writeableFiles);
 
-            foreach (array_diff(array_keys($oldManifest), $newPaths) as $stalePath) {
-                $upToDate = false;
-                $output->writeln("<error>{$outputDirectory}/{$stalePath} is stale (no longer generated).</error>");
-            }
+        foreach (array_diff(array_keys($oldManifest), $newPaths) as $stalePath) {
+            $upToDate = false;
+            $output->writeln("<error>{$outputDirectory}/{$stalePath} is stale (no longer generated).</error>");
         }
 
         if (!$upToDate) {
