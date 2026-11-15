@@ -22,9 +22,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 /**
  * Builds one generated type per root component (its client-facing `ui:prop`/`#[ExposeToClient]`
  * props, resolved per {@see WireTypeResolver}'s rule), plus the `HydrationPropsRegistry` module
- * augmentation tying each one to its component name - the custom half of this command's output;
- * any independently `#[TypeScript]`-tagged class is handled separately, by spatie's own
- * `TransformerProvider` over each local extension's `Classes/` folder.
+ * augmentation tying each one to its component name. A `#[TypeScript]`-tagged class without a component
+ * prop comes from {@see TaggedClassesProvider}.
  */
 final class ComponentPropsProvider implements TransformedProvider, LoggingTransformedProvider
 {

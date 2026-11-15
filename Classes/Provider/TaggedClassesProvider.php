@@ -6,18 +6,14 @@ namespace Jramke\FluidTypes\Provider;
 
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Resolver\WireTypeResolver;
-use Jramke\FluidTypes\Transformers\TaggedOnlyTransformer;
-use Jramke\FluidTypes\Transformers\WireClassTransformer;
+use Spatie\TypeScriptTransformer\Actions\DiscoverTypesAction;
+use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 use Spatie\TypeScriptTransformer\Transformed\Transformed;
 use Spatie\TypeScriptTransformer\TransformedProviders\TransformedProvider;
-use Spatie\TypeScriptTransformer\TransformedProviders\TransformerProvider;
-use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
-use Spatie\TypeScriptTransformer\Transformers\Transformer;
 
 /**
- * The classes and the backed enums that carry `#[TypeScript]` in the `Classes/` folders of the project's own
- * extensions, plus every class, enum and interface they refer to, resolved by the same rule as the classes of a
- * component prop.
+ * The classes, interfaces and backed enums that carry `#[TypeScript]` in the `Classes/` folders of the project's own
+ * extensions, plus everything they refer to - resolved by the same rule as the class of a component prop.
  */
 final readonly class TaggedClassesProvider implements TransformedProvider
 {
@@ -25,17 +21,6 @@ final readonly class TaggedClassesProvider implements TransformedProvider
         private PackageResolver $packageResolver,
         private WireTypeResolver $wireTypeResolver,
     ) {}
-
-    /**
-     * @return list<Transformer>
-     */
-    public static function transformers(): array
-    {
-        return [
-            new TaggedOnlyTransformer(new WireClassTransformer()),
-            new TaggedOnlyTransformer(new EnumTransformer()),
-        ];
-    }
 
     /**
      * @return array<Transformed>
@@ -53,12 +38,14 @@ final readonly class TaggedClassesProvider implements TransformedProvider
      */
     public function provideFrom(array $directories): array
     {
-        $tagged = (new TransformerProvider(self::transformers(), $directories))->provide();
+        foreach ((new DiscoverTypesAction())->execute($directories) as $phpClassNode) {
+            if ($phpClassNode->getAttributes(TypeScript::class) === []) {
+                continue;
+            }
 
-        foreach ($tagged as $transformed) {
-            $this->wireTypeResolver->resolveReferencesOf($transformed);
+            $this->wireTypeResolver->resolveTypeString($phpClassNode->getName());
         }
 
-        return [...$tagged, ...array_values($this->wireTypeResolver->getClassTransformeds())];
+        return array_values($this->wireTypeResolver->getClassTransformeds());
     }
 }
