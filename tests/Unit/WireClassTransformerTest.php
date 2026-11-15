@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Tests\Unit;
 
-use Jramke\FluidPrimitives\Exception\ConfigurationException;
 use Jramke\FluidTypes\Tests\Fixtures\LabelMap;
 use Jramke\FluidTypes\Tests\Fixtures\OpeningHours;
 use Jramke\FluidTypes\Tests\Fixtures\ShopCoordinates;
@@ -42,12 +41,9 @@ final class WireClassTransformerTest extends TestCase
     }
 
     #[Test]
-    public function jsonSerializeWithoutADocumentedShapeStopsGeneration(): void
+    public function jsonSerializeWithoutADocumentedShapeBecomesAny(): void
     {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('jsonSerialize() has no documented "@return array{...}" shape');
-
-        $this->write(UndocumentedPayload::class);
+        self::assertSame('type UndocumentedPayload = any;', $this->write(UndocumentedPayload::class));
     }
 
     /**

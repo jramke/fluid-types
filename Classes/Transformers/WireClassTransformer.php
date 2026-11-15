@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Transformers;
 
-use Jramke\FluidPrimitives\Exception\ConfigurationException;
+use Jramke\FluidTypes\TypeScriptNodes\UnknownJsonShape;
 use JsonSerializable;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
 use Spatie\TypeScriptTransformer\Data\TransformationContext;
@@ -20,8 +20,8 @@ use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
  * docblock of `jsonSerialize()`, otherwise its public properties. `jsonSerialize()` decides every time, also for a
  * class tagged with `#[TypeScript]`, because it is the one place where a class's real wire shape is guaranteed
  * accurate - its properties are not (e.g. `ListCollection`'s own constructor properties don't match its computed
- * `size`/`first`/`last` output at all). A `JsonSerializable` class without a documented shape fails generation with a
- * message asking for one, rather than silently emitting a type that might not match what is actually sent.
+ * `size`/`first`/`last` output at all). A `JsonSerializable` class without a documented shape becomes
+ * {@see UnknownJsonShape} (`any`): imprecise, but never a type that does not match what is sent.
  */
 final class WireClassTransformer extends ClassTransformer
 {
@@ -49,21 +49,7 @@ final class WireClassTransformer extends ClassTransformer
 
         $documentedShape = $this->resolveJsonSerializeShape($phpClassNode);
 
-        if ($documentedShape instanceof TypeScriptNode) {
-            return $documentedShape;
-        }
-
-        throw new ConfigurationException(
-            sprintf(
-                'Cannot generate a client type for "%s": it implements JsonSerializable, but ' .
-                'jsonSerialize() has no documented "@return array{...}" shape describing what it ' .
-                'actually returns. Add one, or describe the type with #[LiteralTypeScriptType] on the ' .
-                'class. For a class you do not own, expose a plain, already-flattened value from your ' .
-                'own Context or ViewHelper code instead of the raw object.',
-                $phpClassNode->getName(),
-            ),
-            7581211895,
-        );
+        return $documentedShape ?? new UnknownJsonShape();
     }
 
     private function resolveJsonSerializeShape(PhpClassNode $phpClassNode): ?TypeScriptNode
