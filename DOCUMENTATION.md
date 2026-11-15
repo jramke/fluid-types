@@ -71,9 +71,56 @@ declare namespace ui {
 - every `ui:prop` of the root template with `client="{true}"`, see [Client props](/docs/core-concepts/arguments#content-client-props). A required prop is a required property. A prop with a `default` or `optional="{true}"` is an optional one.
 - every getter of the component's context marked with `#[ExposeToClient]`, under its `name`, see [Exposing context to client](/docs/core-concepts/context#content-exposing-context-to-client). A getter replaces a prop of the same name. With `excludeIfNull: true` its property is optional.
 
-A root component gets a type when it has client props or exposed getters. Some props change their shape when the client mounts a component: the `collection` of a Select arrives in `props` as a `ListCollection`, while the generated type describes the JSON the server sends.
+A root component gets a type when it has client props or exposed getters. A prop with a [client converter](#content-convert-a-prop-on-the-client) arrives in `props` converted and is typed that way: the `collection` of a Select is a `ListCollection` in the callback, while `types.d.ts` describes the JSON the server sends.
 
 The type is named after the component and sits in the namespace of its collection: `ui:storeMap` is `ui.StoreMapHydrationProps`. A dotted name drops the dots, `ui:shop.productCard` is `ui.ShopProductCardHydrationProps`. The library's `primitives:select` and your styled `ui:select` get a type each, `primitives.SelectHydrationProps` and `ui.SelectHydrationProps`.
+
+## Convert a prop on the client
+
+Register a converter when a component works with a prop in another shape than its JSON. A delivery date picker gets its earliest date as a string and needs a `Date`:
+
+```typescript
+import {
+    mountAll,
+    registerClientPropConverters,
+    type ClientPropConverterMap,
+    type ConverterMachineProps,
+} from 'fluid-primitives';
+
+const deliveryDatePropConverters = {
+    earliest: (earliest: string | undefined) => (earliest ? new Date(earliest) : new Date()),
+} satisfies ClientPropConverterMap;
+
+registerClientPropConverters('deliveryDate', deliveryDatePropConverters);
+
+declare module 'fluid-primitives' {
+    interface HydrationPropsOverrides {
+        deliveryDate: ConverterMachineProps<typeof deliveryDatePropConverters>;
+    }
+}
+
+mountAll('ui:deliveryDate', ({ props }) => {
+    // props.earliest is a Date
+});
+```
+
+`mountAll` and `mount` run the converters before the callback. The `HydrationPropsOverrides` entry replaces the generated type of each converted prop with what its converter returns.
+
+- Register the converters before `mountAll` or `mount` runs for the component, at the top level of the module that mounts it. A component that mounts first gets the JSON value.
+- A converter must handle `undefined`, because it runs for every instance, also when the server sent no value.
+- Converters and overrides are keyed by the bare component name, `deliveryDate`, so they apply to the component in every namespace.
+
+### `registerClientPropConverters`
+
+{% component: "ui:apiReference", arguments: { "symbol": "registerClientPropConverters" } %}
+
+### `ConverterMachineProps`
+
+{% component: "ui:apiReference", arguments: { "symbol": "ConverterMachineProps" } %}
+
+### `HydrationPropsOverrides`
+
+{% component: "ui:apiReference", arguments: { "symbol": "HydrationPropsOverrides" } %}
 
 ## Map PHP types to TypeScript types
 
