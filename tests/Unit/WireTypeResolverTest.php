@@ -9,6 +9,7 @@ use Jramke\FluidTypes\Resolver\WireTypeResolver;
 use Jramke\FluidTypes\Tests\Fixtures\DeliveryChannel;
 use Jramke\FluidTypes\Tests\Fixtures\NoPublicState;
 use Jramke\FluidTypes\Tests\Fixtures\ShopAddress;
+use Jramke\FluidTypes\Tests\Fixtures\ShopContext;
 use Jramke\FluidTypes\Tests\Fixtures\ShopCoordinates;
 use Jramke\FluidTypes\Tests\Fixtures\ShopOrder;
 use Jramke\FluidTypes\Tests\Fixtures\ShopOrderWithDate;
@@ -18,6 +19,7 @@ use Jramke\FluidTypes\Tests\Fixtures\Weekday;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 use Spatie\TypeScriptTransformer\Data\WritingContext;
 
 final class WireTypeResolverTest extends TestCase
@@ -79,6 +81,41 @@ final class WireTypeResolverTest extends TestCase
     }
 
     #[Test]
+    public function resolvesAClassThatOnlyTheReturnDocblockOfAMethodNames(): void
+    {
+        $resolver = new WireTypeResolver();
+        $resolver->resolveMethodReturnType(new ReflectionMethod(ShopContext::class, 'getAddress'));
+
+        self::assertSame([ShopAddress::class], array_keys($resolver->getClassTransformeds()));
+    }
+
+    /**
+     * @return iterable<string, array{0: class-string, 1: string}>
+     */
+    public static function shapesOnlyKnownAtRuntime(): iterable
+    {
+        yield 'userland interface' => [DeliveryChannel::class, 'type DeliveryChannel = any;'];
+        yield 'JsonSerializable itself' => [\JsonSerializable::class, 'type JsonSerializable = any;'];
+        yield 'stdClass' => [\stdClass::class, 'type stdClass = any;'];
+    }
+
+    /**
+     * @param class-string $class
+     */
+    #[Test]
+    #[DataProvider('shapesOnlyKnownAtRuntime')]
+    public function typesAShapeOnlyKnownAtRuntimeAsAny(string $class, string $expected): void
+    {
+        $resolver = new WireTypeResolver();
+        $resolver->resolveTypeString($class);
+
+        self::assertSame(
+            $expected,
+            $resolver->getClassTransformeds()[$class]->getNode()->write(new WritingContext([])),
+        );
+    }
+
+    #[Test]
     public function resolvesAClassThatRefersToItselfOnce(): void
     {
         $resolver = new WireTypeResolver();
@@ -118,6 +155,7 @@ final class WireTypeResolverTest extends TestCase
     {
         $this->expectException(ConfigurationException::class);
         $this->expectExceptionMessage(sprintf('(referenced by "%s")', ShopOrderWithDate::class));
+        $this->expectExceptionCode(3857210946);
 
         (new WireTypeResolver())->resolveTypeString(ShopOrderWithDate::class);
     }

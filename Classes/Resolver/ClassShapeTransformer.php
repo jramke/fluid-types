@@ -18,12 +18,13 @@ use Spatie\TypeScriptTransformer\Transformed\Untransformable;
 use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptAlias;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptIdentifier;
+use stdClass;
 
 /**
  * Turns one class, interface or backed enum into the generated type of what it sends to the client. A class that
  * would arrive as `{}` or as the internal shape of PHP (no public properties and not `JsonSerializable`, or an
  * internal class such as `DateTime`) stops generation, the same classes the library refuses to hydrate. An interface
- * has an unknown implementation, so it becomes {@see UnknownJsonShape}.
+ * and `stdClass` have no shape known before runtime, so they become {@see UnknownJsonShape}.
  */
 final readonly class ClassShapeTransformer
 {
@@ -38,7 +39,7 @@ final readonly class ClassShapeTransformer
 
         $transformed = match (true) {
             $phpClassNode->isEnum() => (new EnumTransformer())->transform($phpClassNode, $context),
-            $reflection->isInterface() && !$reflection->isInternal() => $this->interfaceShape($phpClassNode, $context),
+            $this->hasUnknownShape($reflection) => $this->unknownShape($phpClassNode, $context),
             default => $this->classShape($reflection, $phpClassNode, $context),
         };
 
@@ -56,7 +57,25 @@ final readonly class ClassShapeTransformer
         return $transformed;
     }
 
-    private function interfaceShape(PhpClassNode $phpClassNode, TransformationContext $context): Transformed
+    /**
+     * An interface other than an internal one such as `DateTimeInterface` (which is exactly as unknown, unless it is
+     * `JsonSerializable`), and `stdClass`, which the library hydrates with whatever properties it has at runtime.
+     *
+     * @param ReflectionClass<object> $reflection
+     */
+    private function hasUnknownShape(ReflectionClass $reflection): bool
+    {
+        if ($reflection->getName() === stdClass::class) {
+            return true;
+        }
+
+        return (
+            $reflection->isInterface() &&
+            (!$reflection->isInternal() || $reflection->implementsInterface(JsonSerializable::class))
+        );
+    }
+
+    private function unknownShape(PhpClassNode $phpClassNode, TransformationContext $context): Transformed
     {
         /** @var array<string> $location */
         $location = $context->nameSpaceSegments;
@@ -88,9 +107,8 @@ final readonly class ClassShapeTransformer
                     sprintf(
                         'Cannot generate a client type for "%s": it is not JsonSerializable and has no public ' .
                         'properties, so the client would receive {} or the internal shape of PHP. Pass a plain ' .
-                        'value instead (a formatted date string for a DateTime), a class with public properties or ' .
-                        'one that implements JsonSerializable, or describe the property with ' .
-                        '#[LiteralTypeScriptType(\'string\')].',
+                        'value instead, such as a string property that holds a formatted date, a class with public ' .
+                        'properties, or a JsonSerializable class whose jsonSerialize() formats the value.',
                         $reflection->getName(),
                     ),
                     3857210946,

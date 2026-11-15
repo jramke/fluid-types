@@ -58,9 +58,6 @@ final class WireTypeResolver
     /** @var array<class-string, Transformed> */
     private array $classTransformeds = [];
 
-    /** @var array<class-string, true> */
-    private array $inProgress = [];
-
     private readonly DocTypeResolver $docTypeResolver;
 
     private readonly ClassShapeTransformer $classShapeTransformer;
@@ -89,7 +86,14 @@ final class WireTypeResolver
         $parsedMethod = $this->docTypeResolver->method($phpMethodNode);
 
         if ($parsedMethod?->returnType instanceof TypeNode) {
-            return $this->resolveDocblockType($parsedMethod->returnType, $phpMethodNode->getDeclaringClass());
+            $type = $this->resolveDocblockType($parsedMethod->returnType, $phpMethodNode->getDeclaringClass());
+            // spatie's docblock transpiler only references the classes it names, so they are resolved here.
+            $this->resolveReferencesIn(
+                $type,
+                $method->getDeclaringClass()->getName() . '::' . $method->getName() . '()',
+            );
+
+            return $type;
         }
 
         $nativeReturnType = $method->getReturnType();
@@ -250,14 +254,12 @@ final class WireTypeResolver
      */
     private function ensureResolved(string $fqcn): void
     {
-        if (array_key_exists($fqcn, $this->classTransformeds) || array_key_exists($fqcn, $this->inProgress)) {
+        if (array_key_exists($fqcn, $this->classTransformeds)) {
             return;
         }
 
-        $this->inProgress[$fqcn] = true;
+        // Stored before its references are walked, so a class that refers back to it ends here.
         $transformed = $this->classShapeTransformer->transform($fqcn);
-        unset($this->inProgress[$fqcn]);
-
         $this->classTransformeds[$fqcn] = $transformed;
 
         $this->resolveReferencesOf($transformed);
@@ -270,8 +272,15 @@ final class WireTypeResolver
     public function resolveReferencesOf(Transformed $transformed): void
     {
         $owner = $transformed->getReference();
-        $referencedBy = $owner instanceof ClassStringReference ? $owner->classString : $owner->humanFriendlyName();
 
+        $this->resolveReferencesIn(
+            $transformed->getNode(),
+            $owner instanceof ClassStringReference ? $owner->classString : $owner->humanFriendlyName(),
+        );
+    }
+
+    private function resolveReferencesIn(TypeScriptNode $node, string $referencedBy): void
+    {
         Visitor::create()
             ->before(function (TypeScriptReference $typeReference) use ($referencedBy): void {
                 $reference = $typeReference->reference;
@@ -290,6 +299,6 @@ final class WireTypeResolver
                     );
                 }
             }, [TypeScriptReference::class])
-            ->execute($transformed->getNode());
+            ->execute($node);
     }
 }
