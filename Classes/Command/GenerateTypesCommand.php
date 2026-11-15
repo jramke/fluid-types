@@ -6,6 +6,7 @@ namespace Jramke\FluidTypes\Command;
 
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
+use Jramke\FluidTypes\Transformers\AttributedEnumTransformer;
 use Jramke\FluidTypes\Validation\TypeNameCollisionValidator;
 use Spatie\TypeScriptTransformer\Data\WriteableFile;
 use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
@@ -80,7 +81,9 @@ final class GenerateTypesCommand extends Command
         // spatie refuses transformers without a directory to scan.
         $classesDirectories = $this->packageResolver->getLocalClassesDirectories();
         if ($classesDirectories !== []) {
-            $configFactory->transformer(new AttributedClassTransformer())->transformDirectories(...$classesDirectories);
+            $configFactory
+                ->transformer(new AttributedClassTransformer(), new AttributedEnumTransformer())
+                ->transformDirectories(...$classesDirectories);
         }
 
         $config = $configFactory->get();
