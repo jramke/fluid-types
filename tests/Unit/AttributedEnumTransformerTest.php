@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Tests\Unit;
 
+use Jramke\FluidTypes\Tests\Fixtures\DeliveryMethod;
+use Jramke\FluidTypes\Tests\Fixtures\Weekday;
 use Jramke\FluidTypes\Transformers\AttributedEnumTransformer;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\Data\WritingContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
@@ -40,20 +41,4 @@ final class AttributedEnumTransformerTest extends TestCase
 
         return (new AttributedEnumTransformer())->transform($node, TransformationContext::createFromPhpClass($node));
     }
-}
-
-// Enums have no autoloader here, the test file declares its own fixtures.
-// @mago-expect lint:single-class-per-file
-#[TypeScript(name: 'Delivery', location: ['Shop', 'Types'])]
-enum DeliveryMethod: string
-{
-    case Pickup = 'pickup';
-    case Courier = 'courier';
-}
-
-// @mago-expect lint:single-class-per-file
-enum Weekday: string
-{
-    case Monday = 'monday';
-    case Tuesday = 'tuesday';
 }
