@@ -146,7 +146,7 @@ declare namespace MyVendor.MyExtension.Domain.Dto {
 
 `jsonSerialize()` decides the type every time, also for a class tagged with `#[TypeScript]`. Without a `@return` docblock the type is `any`, and the command warns. A class without `JsonSerializable` gets its public properties as the type.
 
-The classes, enums and interfaces that a type refers to get a type as well, tagged or not, so a nested object needs no `#[TypeScript]`. An interface becomes `any`, because the command cannot know its implementation. A class that reaches the client as `{}` or as the internal shape of PHP stops the command: a class without public properties that is not `JsonSerializable`, and an internal class such as `DateTimeImmutable`. Send a formatted string instead, or type the property with `#[LiteralTypeScriptType('string')]`.
+The classes, enums and interfaces that a type refers to get a type as well, tagged or not, so a nested object needs no `#[TypeScript]`. An interface and `stdClass` become `any`, because their shape is only known at runtime. A class that reaches the client as `{}` or as the internal shape of PHP stops the command: a class without public properties that is not `JsonSerializable`, and an internal class such as `DateTimeImmutable`. Send a string property that holds the formatted value instead, or format it in `jsonSerialize()`.
 
 ## Type exposed getters
 
@@ -229,7 +229,7 @@ The command compares a fresh run with the manifest in the output folder, names e
 
 ### A type is `any`
 
-A `ui:prop` declared `type="array"` generates `any`, because a PHP array is a list or an object once it is encoded. Declare a list as `type="string[]"` for a precise type. A `JsonSerializable` class without a `@return array{...}` docblock and an interface generate `any` too. The command prints one warning per kind with the number of types that qualify, and `-v` lists them.
+A `ui:prop` declared `type="array"` generates `any`, because a PHP array is a list or an object once it is encoded. Declare a list as `type="string[]"` for a precise type. A `JsonSerializable` class without a `@return array{...}` docblock, an interface and `stdClass` generate `any` too. The command prints one warning per kind with the number of types that qualify, and `-v` lists them.
 
 ### A class has no type
 
