@@ -9,14 +9,19 @@ use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
 use Spatie\TypeScriptTransformer\Transformed\Transformed;
 use Spatie\TypeScriptTransformer\Transformed\Untransformable;
-use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
+use Spatie\TypeScriptTransformer\Transformers\Transformer;
 
 /**
- * The enum counterpart of spatie's `AttributedClassTransformer`, which skips every enum: transforms a backed enum
- * only when it carries `#[TypeScript]`. The name and location of the attribute are already part of the context.
+ * Hands a class or enum to the transformer it wraps only when it carries `#[TypeScript]`: what the command generates
+ * from the `Classes/` folders of the project without a component prop that uses it. The name and location of the
+ * attribute are already part of the transformation context.
  */
-final class AttributedEnumTransformer extends EnumTransformer
+final readonly class TaggedOnlyTransformer implements Transformer
 {
+    public function __construct(
+        private Transformer $transformer,
+    ) {}
+
     #[\Override]
     public function transform(PhpClassNode $phpClassNode, TransformationContext $context): Transformed|Untransformable
     {
@@ -24,6 +29,6 @@ final class AttributedEnumTransformer extends EnumTransformer
             return Untransformable::create();
         }
 
-        return parent::transform($phpClassNode, $context);
+        return $this->transformer->transform($phpClassNode, $context);
     }
 }

@@ -8,7 +8,6 @@ use Jramke\FluidPrimitives\Exception\ConfigurationException;
 use Jramke\FluidTypes\Tests\Fixtures\OpeningHours;
 use Jramke\FluidTypes\Tests\Fixtures\ShopCoordinates;
 use Jramke\FluidTypes\Tests\Fixtures\UndocumentedPayload;
-use Jramke\FluidTypes\Transformers\AttributedWireClassTransformer;
 use Jramke\FluidTypes\Transformers\WireClassTransformer;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -17,33 +16,22 @@ use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\Data\WritingContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
 use Spatie\TypeScriptTransformer\Transformed\Transformed;
-use Spatie\TypeScriptTransformer\Transformed\Untransformable;
-use Spatie\TypeScriptTransformer\Transformers\Transformer;
 
 final class WireClassTransformerTest extends TestCase
 {
     #[Test]
     public function jsonSerializeDecidesTheShapeEvenForAClassTaggedWithTheAttribute(): void
     {
-        $transformed = $this->transform(new WireClassTransformer(), ShopCoordinates::class);
-
-        self::assertInstanceOf(Transformed::class, $transformed);
-        $typeScript = $transformed->getNode()->write(new WritingContext([]));
-        self::assertStringContainsString('lat: number', $typeScript);
-        self::assertStringNotContainsString('latitude', $typeScript);
+        self::assertSame("type Coordinates = {\nlat: number,\nlng: number,\n};", $this->write(ShopCoordinates::class));
     }
 
     #[Test]
     public function aClassWithoutJsonSerializeTakesItsPublicProperties(): void
     {
-        $transformed = $this->transform(new WireClassTransformer(), OpeningHours::class);
-
-        self::assertInstanceOf(Transformed::class, $transformed);
-        $typeScript = $transformed->getNode()->write(new WritingContext([]));
-        self::assertStringContainsString('day: string', $typeScript);
-        self::assertStringContainsString('note: string | null', $typeScript);
-        self::assertStringContainsString('slots: string[]', $typeScript);
-        self::assertStringNotContainsString('internal', $typeScript);
+        self::assertSame(
+            "type OpeningHours = {\nday: string,\nnote: string | null,\nslots: string[],\n};",
+            $this->write(OpeningHours::class),
+        );
     }
 
     #[Test]
@@ -52,31 +40,19 @@ final class WireClassTransformerTest extends TestCase
         $this->expectException(ConfigurationException::class);
         $this->expectExceptionMessage('jsonSerialize() has no documented "@return array{...}" shape');
 
-        $this->transform(new WireClassTransformer(), UndocumentedPayload::class);
-    }
-
-    #[Test]
-    public function theAttributedVariantTransformsOnlyTaggedClassesUnderTheirNameAndLocation(): void
-    {
-        $transformer = new AttributedWireClassTransformer();
-
-        $tagged = $this->transform($transformer, ShopCoordinates::class);
-
-        self::assertInstanceOf(Transformed::class, $tagged);
-        self::assertSame('Coordinates', $tagged->getName());
-        self::assertSame(['Shop'], $tagged->getLocation());
-
-        // Positive control above: a class without the attribute is skipped by the same transformer.
-        self::assertInstanceOf(Untransformable::class, $this->transform($transformer, OpeningHours::class));
+        $this->write(UndocumentedPayload::class);
     }
 
     /**
      * @param class-string $class
      */
-    private function transform(Transformer $transformer, string $class): Transformed|Untransformable
+    private function write(string $class): string
     {
         $node = PhpClassNode::fromReflection(new ReflectionClass($class));
+        $transformed = (new WireClassTransformer())->transform($node, TransformationContext::createFromPhpClass($node));
 
-        return $transformer->transform($node, TransformationContext::createFromPhpClass($node));
+        self::assertInstanceOf(Transformed::class, $transformed);
+
+        return $transformed->getNode()->write(new WritingContext([]));
     }
 }

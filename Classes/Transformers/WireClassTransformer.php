@@ -23,7 +23,7 @@ use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
  * `size`/`first`/`last` output at all). A `JsonSerializable` class without a documented shape fails generation with a
  * message asking for one, rather than silently emitting a type that might not match what is actually sent.
  */
-class WireClassTransformer extends ClassTransformer
+final class WireClassTransformer extends ClassTransformer
 {
     protected function shouldTransform(PhpClassNode $phpClassNode): bool
     {

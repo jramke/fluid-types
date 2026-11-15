@@ -6,12 +6,14 @@ namespace Jramke\FluidTypes\Command;
 
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
-use Jramke\FluidTypes\Transformers\AttributedEnumTransformer;
-use Jramke\FluidTypes\Transformers\AttributedWireClassTransformer;
+use Jramke\FluidTypes\Transformers\TaggedOnlyTransformer;
+use Jramke\FluidTypes\Transformers\WireClassTransformer;
 use Jramke\FluidTypes\Validation\TypeNameCollisionValidator;
 use Spatie\TypeScriptTransformer\Data\WriteableFile;
 use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
 use Spatie\TypeScriptTransformer\Support\Loggers\SymfonyConsoleLogger;
+use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
+use Spatie\TypeScriptTransformer\Transformers\Transformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformerConfigFactory;
 use Spatie\TypeScriptTransformer\Writers\GlobalNamespaceWriter;
@@ -43,6 +45,20 @@ final class GenerateTypesCommand extends Command
     private const string MANIFEST_FILENAME = 'typescript-transformer-manifest.json';
 
     private const string TYPES_FILENAME = 'types.d.ts';
+
+    /**
+     * What the command generates from the classes of the project besides the component props: the classes and the
+     * backed enums that carry `#[TypeScript]`.
+     *
+     * @return list<Transformer>
+     */
+    public static function taggedTransformers(): array
+    {
+        return [
+            new TaggedOnlyTransformer(new WireClassTransformer()),
+            new TaggedOnlyTransformer(new EnumTransformer()),
+        ];
+    }
 
     protected function configure(): void
     {
@@ -81,9 +97,7 @@ final class GenerateTypesCommand extends Command
         // spatie refuses transformers without a directory to scan.
         $classesDirectories = $this->packageResolver->getLocalClassesDirectories();
         if ($classesDirectories !== []) {
-            $configFactory
-                ->transformer(new AttributedWireClassTransformer(), new AttributedEnumTransformer())
-                ->transformDirectories(...$classesDirectories);
+            $configFactory->transformer(...self::taggedTransformers())->transformDirectories(...$classesDirectories);
         }
 
         $config = $configFactory->get();
