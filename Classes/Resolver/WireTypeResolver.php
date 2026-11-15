@@ -5,22 +5,18 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Resolver;
 
 use Jramke\FluidPrimitives\Exception\ConfigurationException;
-use Jramke\FluidTypes\Transformers\WireClassTransformer;
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
 use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\ObjectShapeNode;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
 use PHPStan\PhpDocParser\Ast\Type\UnionTypeNode;
-use ReflectionClass;
 use ReflectionMethod;
 use Spatie\TypeScriptTransformer\Actions\TranspilePhpStanTypeToTypeScriptNodeAction;
-use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpMethodNode;
+use Spatie\TypeScriptTransformer\References\ClassStringReference;
 use Spatie\TypeScriptTransformer\Transformed\Transformed;
-use Spatie\TypeScriptTransformer\Transformed\Untransformable;
-use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
 use Spatie\TypeScriptTransformer\TypeResolvers\DocTypeResolver;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptAny;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptArray;
@@ -35,6 +31,7 @@ use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptReference;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptString;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUndefined;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnion;
+use Spatie\TypeScriptTransformer\Visitor\Visitor;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 
 /**
@@ -50,11 +47,10 @@ use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
  * here so several props/components referencing the same class (e.g. `TypolinkParameter` used by
  * several `link` props) share one generated type rather than duplicating it.
  *
- * Known v1 limitation: this only resolves the *directly referenced* class for an object-typed
- * prop. A nested property inside an auto-synthesized (untagged) class that is itself an untagged
- * object is resolved by spatie's own default property-type handling, not by this rule recursively -
- * fine for the shapes this project currently generates (`ListCollection`, `TypolinkParameter`, both
- * scalar-only), but a real gap for a deeper untagged object graph.
+ * The classes and enums a resolved class refers to (a property, a `@return array{...}` shape) are resolved the same
+ * way, so an object graph needs no `#[TypeScript]` tag on its nested classes. A class that reaches the client as
+ * `{}` or as the internal shape of PHP (no public properties, an internal class such as `DateTime`) stops the command,
+ * and an interface, whose implementation is unknown, becomes `any` ({@see ClassShapeTransformer}).
  */
 #[Autoconfigure(shared: false)]
 final class WireTypeResolver
@@ -67,11 +63,14 @@ final class WireTypeResolver
 
     private readonly DocTypeResolver $docTypeResolver;
 
+    private readonly ClassShapeTransformer $classShapeTransformer;
+
     private readonly TranspilePhpStanTypeToTypeScriptNodeAction $transpilePhpStanTypeToTypeScriptTypeAction;
 
     public function __construct()
     {
         $this->docTypeResolver = new DocTypeResolver();
+        $this->classShapeTransformer = new ClassShapeTransformer();
         $this->transpilePhpStanTypeToTypeScriptTypeAction = new TranspilePhpStanTypeToTypeScriptNodeAction();
     }
 
@@ -256,27 +255,41 @@ final class WireTypeResolver
         }
 
         $this->inProgress[$fqcn] = true;
-
-        $phpClassNode = PhpClassNode::fromReflection(new ReflectionClass($fqcn));
-        $context = TransformationContext::createFromPhpClass($phpClassNode);
-
-        $transformed = $phpClassNode->isEnum()
-            ? (new EnumTransformer())->transform($phpClassNode, $context)
-            : (new WireClassTransformer())->transform($phpClassNode, $context);
-
+        $transformed = $this->classShapeTransformer->transform($fqcn);
         unset($this->inProgress[$fqcn]);
 
-        if ($transformed instanceof Untransformable) {
-            throw new ConfigurationException(
-                sprintf(
-                    'Cannot generate a client type for "%s": only classes and backed enums can be used as a ' .
-                    'client-facing prop.',
-                    $fqcn,
-                ),
-                4738794604,
-            );
-        }
-
         $this->classTransformeds[$fqcn] = $transformed;
+
+        $this->resolveReferencesOf($transformed);
+    }
+
+    /**
+     * Resolves every class, enum and interface that the type of `$transformed` refers to, so none of them needs a
+     * `#[TypeScript]` tag of its own.
+     */
+    public function resolveReferencesOf(Transformed $transformed): void
+    {
+        $owner = $transformed->getReference();
+        $referencedBy = $owner instanceof ClassStringReference ? $owner->classString : $owner->humanFriendlyName();
+
+        Visitor::create()
+            ->before(function (TypeScriptReference $typeReference) use ($referencedBy): void {
+                $reference = $typeReference->reference;
+
+                if (!$reference instanceof ClassStringReference) {
+                    return;
+                }
+
+                try {
+                    $this->resolveClassOrEnum($reference->classString);
+                } catch (ConfigurationException $exception) {
+                    throw new ConfigurationException(
+                        sprintf('%s (referenced by "%s")', $exception->getMessage(), $referencedBy),
+                        (int)$exception->getCode(),
+                        $exception,
+                    );
+                }
+            }, [TypeScriptReference::class])
+            ->execute($transformed->getNode());
     }
 }
