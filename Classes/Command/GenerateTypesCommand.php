@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Jramke\FluidTypes\Command;
 
+use Jramke\FluidTypes\Discovery\UnknownShapeFinder;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
 use Jramke\FluidTypes\Provider\TaggedClassesProvider;
 use Jramke\FluidTypes\Validation\TypeNameCollisionValidator;
 use Spatie\TypeScriptTransformer\Data\WriteableFile;
 use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
+use Spatie\TypeScriptTransformer\Support\Loggers\Logger;
 use Spatie\TypeScriptTransformer\Support\Loggers\SymfonyConsoleLogger;
 use Spatie\TypeScriptTransformer\TypeScriptTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformerConfigFactory;
@@ -78,10 +80,12 @@ final class GenerateTypesCommand extends Command
 
         $config = $configFactory->get();
 
-        $transformer = TypeScriptTransformer::create($config, new SymfonyConsoleLogger($output));
+        $logger = new SymfonyConsoleLogger($output);
+        $transformer = TypeScriptTransformer::create($config, $logger);
         [$transformedCollection] = $transformer->resolveState();
 
         TypeNameCollisionValidator::assertUnique($transformedCollection);
+        $this->warnAboutUnknownShapes(UnknownShapeFinder::classNames($transformedCollection), $logger);
 
         $writeableFiles = $transformer->resolveFilesAction->execute($transformedCollection);
 
@@ -97,6 +101,25 @@ final class GenerateTypesCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * @param list<string> $classNames
+     */
+    private function warnAboutUnknownShapes(array $classNames, Logger $logger): void
+    {
+        if ($classNames === []) {
+            return;
+        }
+
+        $logger->warning(sprintf(
+            '%d types are generated as "any" because their JSON shape is unknown: a JsonSerializable class ' .
+            'without a "@return array{...}" docblock on jsonSerialize(), or an interface. Run with -v to list them.',
+            count($classNames),
+        ));
+        foreach ($classNames as $className) {
+            $logger->debug($className . ' is generated as "any"');
+        }
     }
 
     /**
