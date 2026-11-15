@@ -71,9 +71,9 @@ declare namespace ui {
 - every `ui:prop` of the root template with `client="{true}"`, see [Client props](/docs/core-concepts/arguments#content-client-props). A required prop is a required property. A prop with a `default` or `optional="{true}"` is an optional one.
 - every getter of the component's context marked with `#[ExposeToClient]`, under its `name`, see [Exposing context to client](/docs/core-concepts/context#content-exposing-context-to-client). A getter replaces a prop of the same name. With `excludeIfNull: true` its property is optional.
 
-A root component without client props or exposed getters has no type. The props the client converts when it mounts a component, like the `collection` of a Select, arrive in `props` with their converted type, the generated type describes the JSON the server sends.
+A root component gets a type when it has client props or exposed getters. Some props change their shape when the client mounts a component: the `collection` of a Select arrives in `props` as a `ListCollection`, while the generated type describes the JSON the server sends.
 
-Every other root component gets a type named after the component, in the namespace of its collection: `ui:storeMap` is `ui.StoreMapHydrationProps`. A dotted name drops the dots, `ui:shop.productCard` is `ui.ShopProductCardHydrationProps`. The library's `primitives:select` and your styled `ui:select` get a type each, `primitives.SelectHydrationProps` and `ui.SelectHydrationProps`.
+The type is named after the component and sits in the namespace of its collection: `ui:storeMap` is `ui.StoreMapHydrationProps`. A dotted name drops the dots, `ui:shop.productCard` is `ui.ShopProductCardHydrationProps`. The library's `primitives:select` and your styled `ui:select` get a type each, `primitives.SelectHydrationProps` and `ui.SelectHydrationProps`.
 
 ## Map PHP types to TypeScript types
 
@@ -197,7 +197,7 @@ const monday: MyVendor.MyExtension.Domain.Dto.OpeningHours = {
 };
 ```
 
-The type contains the public properties of a class without `JsonSerializable`, a class with it follows its `jsonSerialize()` as described above. Describe the items of a list with `@var list<OpeningHours>` on a property or `@param list<OpeningHours> $hours` on the constructor parameter that promotes it.
+The type contains the public properties. Describe the items of a list with `@var list<OpeningHours>` on a property or `@param list<OpeningHours> $hours` on the constructor parameter that promotes it.
 
 The type is named like the class and sits in its PHP namespace. Choose both with the attribute:
 
@@ -210,6 +210,10 @@ final class StoreLocation
 ```
 
 This generates `Shop.Types.Shop`. Two types of one name in one namespace stop the command with the names of both, rename one or give it another `location`.
+
+Tag the classes and enums that a type refers to, such as the enum of a property, so the command generates them as well.
+
+A `JsonSerializable` class whose shape no docblock can describe takes a type from `#[LiteralTypeScriptType('Record<string, string>')]` on the class.
 
 ## Check the types in CI
 
@@ -229,7 +233,7 @@ A `ui:prop` declared `type="array"` generates `any`, because a PHP array is a li
 
 ### A class has no type
 
-The command skips a class that is not tagged with `#[TypeScript]`, one that shares its file with another class and one outside the `Classes/` folder of your own extensions: your sitepackage and every extension installed from a path repository. Keep one class per file, named after the class.
+The command generates the class of a client prop, and every class or backed enum tagged with `#[TypeScript]` in the `Classes/` folder of your own extensions: your sitepackage and every extension installed from a path repository. Tag any other class, and keep one class per file, named after the class.
 
 ### `mountAll` gives untyped props
 
