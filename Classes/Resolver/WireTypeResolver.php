@@ -5,23 +5,18 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Resolver;
 
 use Jramke\FluidPrimitives\Exception\ConfigurationException;
-use Jramke\FluidTypes\Transformers\JsonSerializableClassTransformer;
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
 use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
 use PHPStan\PhpDocParser\Ast\Type\ObjectShapeNode;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
 use PHPStan\PhpDocParser\Ast\Type\UnionTypeNode;
-use ReflectionClass;
 use ReflectionMethod;
 use Spatie\TypeScriptTransformer\Actions\TranspilePhpStanTypeToTypeScriptNodeAction;
-use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpMethodNode;
+use Spatie\TypeScriptTransformer\References\ClassStringReference;
 use Spatie\TypeScriptTransformer\Transformed\Transformed;
-use Spatie\TypeScriptTransformer\Transformed\Untransformable;
-use Spatie\TypeScriptTransformer\Transformers\AttributedClassTransformer;
-use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
 use Spatie\TypeScriptTransformer\TypeResolvers\DocTypeResolver;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptAny;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptArray;
@@ -36,6 +31,7 @@ use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptReference;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptString;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUndefined;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptUnion;
+use Spatie\TypeScriptTransformer\Visitor\Visitor;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 
 /**
@@ -51,11 +47,10 @@ use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
  * here so several props/components referencing the same class (e.g. `TypolinkParameter` used by
  * several `link` props) share one generated type rather than duplicating it.
  *
- * Known v1 limitation: this only resolves the *directly referenced* class for an object-typed
- * prop. A nested property inside an auto-synthesized (untagged) class that is itself an untagged
- * object is resolved by spatie's own default property-type handling, not by this rule recursively -
- * fine for the shapes this project currently generates (`ListCollection`, `TypolinkParameter`, both
- * scalar-only), but a real gap for a deeper untagged object graph.
+ * The classes and enums a resolved class refers to (a property, a `@return array{...}` shape) are resolved the same
+ * way, so an object graph needs no `#[TypeScript]` tag on its nested classes. A class that reaches the client as
+ * `{}` or as the internal shape of PHP (no public properties, an internal class such as `DateTime`) stops the command,
+ * and an interface, whose implementation is unknown, becomes `any` ({@see ClassShapeTransformer}).
  */
 #[Autoconfigure(shared: false)]
 final class WireTypeResolver
@@ -63,16 +58,16 @@ final class WireTypeResolver
     /** @var array<class-string, Transformed> */
     private array $classTransformeds = [];
 
-    /** @var array<class-string, true> */
-    private array $inProgress = [];
-
     private readonly DocTypeResolver $docTypeResolver;
+
+    private readonly ClassShapeTransformer $classShapeTransformer;
 
     private readonly TranspilePhpStanTypeToTypeScriptNodeAction $transpilePhpStanTypeToTypeScriptTypeAction;
 
     public function __construct()
     {
         $this->docTypeResolver = new DocTypeResolver();
+        $this->classShapeTransformer = new ClassShapeTransformer();
         $this->transpilePhpStanTypeToTypeScriptTypeAction = new TranspilePhpStanTypeToTypeScriptNodeAction();
     }
 
@@ -91,7 +86,14 @@ final class WireTypeResolver
         $parsedMethod = $this->docTypeResolver->method($phpMethodNode);
 
         if ($parsedMethod?->returnType instanceof TypeNode) {
-            return $this->resolveDocblockType($parsedMethod->returnType, $phpMethodNode->getDeclaringClass());
+            $type = $this->resolveDocblockType($parsedMethod->returnType, $phpMethodNode->getDeclaringClass());
+            // spatie's docblock transpiler only references the classes it names, so they are resolved here.
+            $this->resolveReferencesIn(
+                $type,
+                $method->getDeclaringClass()->getName() . '::' . $method->getName() . '()',
+            );
+
+            return $type;
         }
 
         $nativeReturnType = $method->getReturnType();
@@ -252,36 +254,51 @@ final class WireTypeResolver
      */
     private function ensureResolved(string $fqcn): void
     {
-        if (array_key_exists($fqcn, $this->classTransformeds) || array_key_exists($fqcn, $this->inProgress)) {
+        if (array_key_exists($fqcn, $this->classTransformeds)) {
             return;
         }
 
-        $this->inProgress[$fqcn] = true;
-
-        $phpClassNode = PhpClassNode::fromReflection(new ReflectionClass($fqcn));
-        $context = TransformationContext::createFromPhpClass($phpClassNode);
-
-        $transformed = $phpClassNode->isEnum()
-            ? (new EnumTransformer())->transform($phpClassNode, $context)
-            : (new AttributedClassTransformer())->transform($phpClassNode, $context);
-
-        if ($transformed instanceof Untransformable && !$phpClassNode->isEnum()) {
-            $transformed = (new JsonSerializableClassTransformer())->transform($phpClassNode, $context);
-        }
-
-        unset($this->inProgress[$fqcn]);
-
-        if ($transformed instanceof Untransformable) {
-            throw new ConfigurationException(
-                sprintf(
-                    'Cannot generate a client type for "%s": it must implement JsonSerializable to be ' .
-                    'used as a client-facing prop.',
-                    $fqcn,
-                ),
-                4738794604,
-            );
-        }
-
+        // Stored before its references are walked, so a class that refers back to it ends here.
+        $transformed = $this->classShapeTransformer->transform($fqcn);
         $this->classTransformeds[$fqcn] = $transformed;
+
+        $this->resolveReferencesOf($transformed);
+    }
+
+    /**
+     * Resolves every class, enum and interface that the type of `$transformed` refers to, so none of them needs a
+     * `#[TypeScript]` tag of its own.
+     */
+    public function resolveReferencesOf(Transformed $transformed): void
+    {
+        $owner = $transformed->getReference();
+
+        $this->resolveReferencesIn(
+            $transformed->getNode(),
+            $owner instanceof ClassStringReference ? $owner->classString : $owner->humanFriendlyName(),
+        );
+    }
+
+    private function resolveReferencesIn(TypeScriptNode $node, string $referencedBy): void
+    {
+        Visitor::create()
+            ->before(function (TypeScriptReference $typeReference) use ($referencedBy): void {
+                $reference = $typeReference->reference;
+
+                if (!$reference instanceof ClassStringReference) {
+                    return;
+                }
+
+                try {
+                    $this->resolveClassOrEnum($reference->classString);
+                } catch (ConfigurationException $exception) {
+                    throw new ConfigurationException(
+                        sprintf('%s (referenced by "%s")', $exception->getMessage(), $referencedBy),
+                        (int)$exception->getCode(),
+                        $exception,
+                    );
+                }
+            }, [TypeScriptReference::class])
+            ->execute($node);
     }
 }
