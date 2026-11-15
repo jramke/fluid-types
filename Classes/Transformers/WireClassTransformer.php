@@ -36,6 +36,13 @@ final class WireClassTransformer extends ClassTransformer
         TransformationContext $context,
         ?ParsedClass $parsedClass = null,
     ): TypeScriptNode {
+        // A type chosen with `#[LiteralTypeScriptType]` or `#[TypeScriptType]` on the class comes first, it is the
+        // way to describe a `jsonSerialize()` whose shape no docblock can.
+        $typeFromAttribute = $this->resolveTypeByAttribute($phpClassNode);
+        if ($typeFromAttribute instanceof TypeScriptNode) {
+            return $typeFromAttribute;
+        }
+
         if (!$phpClassNode->implementsInterface(JsonSerializable::class)) {
             return parent::getTypeScriptNode($phpClassNode, $context, $parsedClass);
         }
@@ -50,8 +57,9 @@ final class WireClassTransformer extends ClassTransformer
             sprintf(
                 'Cannot generate a client type for "%s": it implements JsonSerializable, but ' .
                 'jsonSerialize() has no documented "@return array{...}" shape describing what it ' .
-                'actually returns. Add one - if you don\'t own this class, expose a plain, already-' .
-                'flattened value from your own Context or ViewHelper code instead of the raw object.',
+                'actually returns. Add one, or describe the type with #[LiteralTypeScriptType] on the ' .
+                'class. For a class you do not own, expose a plain, already-flattened value from your ' .
+                'own Context or ViewHelper code instead of the raw object.',
                 $phpClassNode->getName(),
             ),
             7581211895,

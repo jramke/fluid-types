@@ -27,7 +27,7 @@ final class GenerateTypesCommandTest extends TestCase
         // The fixtures also hold an untagged enum, an untagged class and an undocumented JsonSerializable class: the
         // scan skips them without stopping.
         self::assertSame(
-            ['Shop.Coordinates', 'Shop.Types.Delivery'],
+            ['Jramke.FluidTypes.Tests.Fixtures.LabelMap', 'Shop.Coordinates', 'Shop.Types.Delivery'],
             $generated,
         );
     }

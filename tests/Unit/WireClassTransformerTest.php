@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Tests\Unit;
 
 use Jramke\FluidPrimitives\Exception\ConfigurationException;
+use Jramke\FluidTypes\Tests\Fixtures\LabelMap;
 use Jramke\FluidTypes\Tests\Fixtures\OpeningHours;
 use Jramke\FluidTypes\Tests\Fixtures\ShopCoordinates;
 use Jramke\FluidTypes\Tests\Fixtures\UndocumentedPayload;
@@ -32,6 +33,12 @@ final class WireClassTransformerTest extends TestCase
             "type OpeningHours = {\nday: string,\nnote: string | null,\nslots: string[],\n};",
             $this->write(OpeningHours::class),
         );
+    }
+
+    #[Test]
+    public function aLiteralTypeOnTheClassComesBeforeJsonSerialize(): void
+    {
+        self::assertSame('type LabelMap = Record<string, string>;', $this->write(LabelMap::class));
     }
 
     #[Test]
