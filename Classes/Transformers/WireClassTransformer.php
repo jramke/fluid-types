@@ -7,7 +7,6 @@ namespace Jramke\FluidTypes\Transformers;
 use Jramke\FluidPrimitives\Exception\ConfigurationException;
 use JsonSerializable;
 use PHPStan\PhpDocParser\Ast\Type\TypeNode;
-use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 use Spatie\TypeScriptTransformer\Data\TransformationContext;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpMethodNode;
@@ -17,31 +16,18 @@ use Spatie\TypeScriptTransformer\TypeResolvers\Data\ParsedMethod;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptNode;
 
 /**
- * Gives a real generated type to any `JsonSerializable` class that isn't already explicitly
- * `#[TypeScript]`-tagged - the mechanism behind "a class used as a client prop just works, with no
- * manual tagging" (a `Coordinates` DTO, `\TYPO3\CMS\Core\LinkHandling\TypolinkParameter`, ...).
- * `JsonSerializable` is required, at every nesting depth: it's the one explicit, deliberate "yes,
- * this is meant to reach the client" signal a class gives, matching the same requirement
- * `ClientPropValueResolver` already enforces at render time - this only surfaces the same problem
- * earlier, at generation time.
- *
- * The shape comes *only* from what `jsonSerialize()` itself declares (a `@return array{...}`
- * docblock, read the same way any other property/parameter docblock is). Deliberately never falls
- * back to reflecting the class's own properties: `jsonSerialize()` is the one place a class's real
- * wire shape is guaranteed accurate - its properties are not (e.g. `ListCollection`'s own
- * constructor properties don't match its computed `size`/`first`/`last` output at all, and any
- * class could just as easily have unrelated public properties that happen to exist for some other
- * reason). A class without a documented shape fails generation with a message asking for one,
- * rather than silently emitting a type that might not match what's actually sent.
+ * Turns any class into the type of its JSON shape: what a `JsonSerializable` class declares in the `@return array{...}`
+ * docblock of `jsonSerialize()`, otherwise its public properties. `jsonSerialize()` decides every time, also for a
+ * class tagged with `#[TypeScript]`, because it is the one place where a class's real wire shape is guaranteed
+ * accurate - its properties are not (e.g. `ListCollection`'s own constructor properties don't match its computed
+ * `size`/`first`/`last` output at all). A `JsonSerializable` class without a documented shape fails generation with a
+ * message asking for one, rather than silently emitting a type that might not match what is actually sent.
  */
-final class JsonSerializableClassTransformer extends ClassTransformer
+class WireClassTransformer extends ClassTransformer
 {
     protected function shouldTransform(PhpClassNode $phpClassNode): bool
     {
-        return (
-            $phpClassNode->implementsInterface(JsonSerializable::class) &&
-            count($phpClassNode->getAttributes(TypeScript::class)) === 0
-        );
+        return true;
     }
 
     #[\Override]
@@ -50,6 +36,10 @@ final class JsonSerializableClassTransformer extends ClassTransformer
         TransformationContext $context,
         ?ParsedClass $parsedClass = null,
     ): TypeScriptNode {
+        if (!$phpClassNode->implementsInterface(JsonSerializable::class)) {
+            return parent::getTypeScriptNode($phpClassNode, $context, $parsedClass);
+        }
+
         $documentedShape = $this->resolveJsonSerializeShape($phpClassNode);
 
         if ($documentedShape instanceof TypeScriptNode) {

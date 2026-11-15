@@ -7,11 +7,11 @@ namespace Jramke\FluidTypes\Command;
 use Jramke\FluidPrimitives\Service\PackageResolver;
 use Jramke\FluidTypes\Provider\ComponentPropsProvider;
 use Jramke\FluidTypes\Transformers\AttributedEnumTransformer;
+use Jramke\FluidTypes\Transformers\AttributedWireClassTransformer;
 use Jramke\FluidTypes\Validation\TypeNameCollisionValidator;
 use Spatie\TypeScriptTransformer\Data\WriteableFile;
 use Spatie\TypeScriptTransformer\Formatters\PrettierFormatter;
 use Spatie\TypeScriptTransformer\Support\Loggers\SymfonyConsoleLogger;
-use Spatie\TypeScriptTransformer\Transformers\AttributedClassTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformer;
 use Spatie\TypeScriptTransformer\TypeScriptTransformerConfigFactory;
 use Spatie\TypeScriptTransformer\Writers\GlobalNamespaceWriter;
@@ -82,7 +82,7 @@ final class GenerateTypesCommand extends Command
         $classesDirectories = $this->packageResolver->getLocalClassesDirectories();
         if ($classesDirectories !== []) {
             $configFactory
-                ->transformer(new AttributedClassTransformer(), new AttributedEnumTransformer())
+                ->transformer(new AttributedWireClassTransformer(), new AttributedEnumTransformer())
                 ->transformDirectories(...$classesDirectories);
         }
 

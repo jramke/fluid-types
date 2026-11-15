@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Jramke\FluidTypes\Resolver;
 
 use Jramke\FluidPrimitives\Exception\ConfigurationException;
-use Jramke\FluidTypes\Transformers\JsonSerializableClassTransformer;
+use Jramke\FluidTypes\Transformers\WireClassTransformer;
 use PHPStan\PhpDocParser\Ast\ConstExpr\ConstExprStringNode;
 use PHPStan\PhpDocParser\Ast\Type\ArrayShapeNode;
 use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
@@ -20,7 +20,6 @@ use Spatie\TypeScriptTransformer\PhpNodes\PhpClassNode;
 use Spatie\TypeScriptTransformer\PhpNodes\PhpMethodNode;
 use Spatie\TypeScriptTransformer\Transformed\Transformed;
 use Spatie\TypeScriptTransformer\Transformed\Untransformable;
-use Spatie\TypeScriptTransformer\Transformers\AttributedClassTransformer;
 use Spatie\TypeScriptTransformer\Transformers\EnumTransformer;
 use Spatie\TypeScriptTransformer\TypeResolvers\DocTypeResolver;
 use Spatie\TypeScriptTransformer\TypeScriptNodes\TypeScriptAny;
@@ -263,19 +262,15 @@ final class WireTypeResolver
 
         $transformed = $phpClassNode->isEnum()
             ? (new EnumTransformer())->transform($phpClassNode, $context)
-            : (new AttributedClassTransformer())->transform($phpClassNode, $context);
-
-        if ($transformed instanceof Untransformable && !$phpClassNode->isEnum()) {
-            $transformed = (new JsonSerializableClassTransformer())->transform($phpClassNode, $context);
-        }
+            : (new WireClassTransformer())->transform($phpClassNode, $context);
 
         unset($this->inProgress[$fqcn]);
 
         if ($transformed instanceof Untransformable) {
             throw new ConfigurationException(
                 sprintf(
-                    'Cannot generate a client type for "%s": it must implement JsonSerializable to be ' .
-                    'used as a client-facing prop.',
+                    'Cannot generate a client type for "%s": only classes and backed enums can be used as a ' .
+                    'client-facing prop.',
                     $fqcn,
                 ),
                 4738794604,
