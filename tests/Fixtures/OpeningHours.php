@@ -15,6 +15,6 @@ final class OpeningHours
         public array $slots = [],
         // Private on purpose: the generated type must leave it out.
         // @mago-expect analysis:unused-property
-        private string $internal = '',
+        private readonly string $internal = '',
     ) {}
 }
