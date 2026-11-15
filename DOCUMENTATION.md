@@ -99,22 +99,22 @@ declare namespace ui {
 }
 ```
 
-| PHP type                                   | TypeScript type                                            |
-| ------------------------------------------ | ---------------------------------------------------------- |
-| `string`                                   | `string`                                                   |
-| `int`, `float`                             | `number`                                                   |
-| `bool`                                     | `boolean`                                                  |
-| `string[]`, `int[]`                        | `string[]`, `number[]`                                     |
-| `array`, `object`, `iterable`, `mixed`     | `any`                                                      |
-| a class that implements `JsonSerializable` | its generated type                                         |
-| a backed enum                              | a union of its values                                      |
-| `callable`                                 | stops the command, a callback cannot be sent to the client |
+| PHP type                               | TypeScript type                                            |
+| -------------------------------------- | ---------------------------------------------------------- |
+| `string`                               | `string`                                                   |
+| `int`, `float`                         | `number`                                                   |
+| `bool`                                 | `boolean`                                                  |
+| `string[]`, `int[]`                    | `string[]`, `number[]`                                     |
+| `array`, `object`, `iterable`, `mixed` | `any`                                                      |
+| a class                                | its generated type                                         |
+| a backed enum                          | a union of its values                                      |
+| `callable`                             | stops the command, a callback cannot be sent to the client |
 
 A nullable type adds `null` (`?string` is `string | null`) and a union type becomes a union (`string|int` is `string | number`). An optional property drops the `null`, because the client reads an absent and a `null` prop the same way: `label?: string` for `?string`.
 
 ## Use PHP objects as client props
 
-An object passed as a client prop must implement `JsonSerializable`, and its `jsonSerialize()` must carry a `@return array{...}` docblock. The type follows that docblock, the one place that describes what the client receives. The command stops for a class without one:
+An object passed as a client prop reaches the client as JSON: a class that implements `JsonSerializable` sends what its `jsonSerialize()` returns, any other class its public properties. A `JsonSerializable` class must carry a `@return array{...}` docblock on `jsonSerialize()`, because the type follows it and the command stops for a class without one:
 
 ```php
 namespace MyVendor\MyExtension\Domain\Dto;
@@ -144,7 +144,7 @@ declare namespace MyVendor.MyExtension.Domain.Dto {
 }
 ```
 
-`jsonSerialize()` decides the type every time, also for a class tagged with `#[TypeScript]`.
+`jsonSerialize()` decides the type every time, also for a class tagged with `#[TypeScript]`. A class without `JsonSerializable` gets its public properties as the type.
 
 ## Type exposed getters
 
