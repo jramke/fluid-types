@@ -114,7 +114,7 @@ A nullable type adds `null` (`?string` is `string | null`) and a union type beco
 
 ## Use PHP objects as client props
 
-An object passed as a client prop reaches the client as JSON: a class that implements `JsonSerializable` sends what its `jsonSerialize()` returns, any other class its public properties. A `JsonSerializable` class must carry a `@return array{...}` docblock on `jsonSerialize()`, because the type follows it and the command stops for a class without one:
+An object passed as a client prop reaches the client as JSON: a class that implements `JsonSerializable` sends what its `jsonSerialize()` returns, any other class its public properties. The type follows the `@return array{...}` docblock of `jsonSerialize()`, so describe what it returns:
 
 ```php
 namespace MyVendor\MyExtension\Domain\Dto;
@@ -144,7 +144,9 @@ declare namespace MyVendor.MyExtension.Domain.Dto {
 }
 ```
 
-`jsonSerialize()` decides the type every time, also for a class tagged with `#[TypeScript]`. A class without `JsonSerializable` gets its public properties as the type.
+`jsonSerialize()` decides the type every time, also for a class tagged with `#[TypeScript]`. Without a `@return` docblock the type is `any`, and the command warns. A class without `JsonSerializable` gets its public properties as the type.
+
+The classes, enums and interfaces that a type refers to get a type as well, tagged or not, so a nested object needs no `#[TypeScript]`. An interface becomes `any`, because the command cannot know its implementation. A class that reaches the client as `{}` or as the internal shape of PHP stops the command: a class without public properties that is not `JsonSerializable`, and an internal class such as `DateTimeImmutable`. Send a formatted string instead, or type the property with `#[LiteralTypeScriptType('string')]`.
 
 ## Type exposed getters
 
@@ -211,9 +213,7 @@ final class StoreLocation
 
 This generates `Shop.Types.Shop`. Two types of one name in one namespace stop the command with the names of both, rename one or give it another `location`.
 
-Tag the classes and enums that a type refers to, such as the enum of a property, so the command generates them as well.
-
-A `JsonSerializable` class whose shape no docblock can describe takes a type from `#[LiteralTypeScriptType('Record<string, string>')]` on the class.
+Describe a class or a property whose shape no docblock can express with `#[LiteralTypeScriptType('Record<string, string>')]`. It takes precedence over `jsonSerialize()` and over the public properties.
 
 ## Check the types in CI
 
@@ -227,13 +227,13 @@ The command compares a fresh run with the manifest in the output folder, names e
 
 ## Common problems
 
-### A prop is typed as `any`
+### A type is `any`
 
-A `ui:prop` declared `type="array"` generates `any`, because a PHP array is a list or an object once it is encoded. Declare a list as `type="string[]"` for a precise type. The command prints one warning with the number of props that qualify, and `-v` lists them.
+A `ui:prop` declared `type="array"` generates `any`, because a PHP array is a list or an object once it is encoded. Declare a list as `type="string[]"` for a precise type. A `JsonSerializable` class without a `@return array{...}` docblock and an interface generate `any` too. The command prints one warning per kind with the number of types that qualify, and `-v` lists them.
 
 ### A class has no type
 
-The command generates the class of a client prop, and every class or backed enum tagged with `#[TypeScript]` in the `Classes/` folder of your own extensions: your sitepackage and every extension installed from a path repository. Tag any other class, and keep one class per file, named after the class.
+The command generates the class of a client prop and everything it refers to, and every class or backed enum tagged with `#[TypeScript]` in the `Classes/` folder of your own extensions: your sitepackage and every extension installed from a path repository. Tag any other class, and keep one class per file, named after the class.
 
 ### `mountAll` gives untyped props
 
